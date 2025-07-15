@@ -1,8 +1,5 @@
 pandas
 openpyxl
-pyqt5
 streamlit
-pandas
-openpyxl
-tkinter
+numpy
 ```

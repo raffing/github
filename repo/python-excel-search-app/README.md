@@ -1,64 +1,65 @@
-# Python Excel Search Application
+# 🏛️ Portale Tariffe Regione Puglia
 
-This project is a Python application that provides a graphical user interface (GUI) for searching and filtering data imported from Excel files. Users can categorize and group entries based on defined criteria while maintaining the original table structure. The application also allows users to copy selected entries to a new section.
+Un'applicazione web Streamlit per ricercare, filtrare e organizzare le tariffe della Regione Puglia contenute in file Excel.
 
-## Features
+## Caratteristiche
 
-- Import data from Excel files.
-- Search for specific text within the data.
-- Filter and group entries based on user-defined categories.
-- Maintain the original structure of the Excel table.
-- Copy selected entries to a new section for further use.
+- **🔍 Ricerca avanzata**: Filtra per categoria e cerca testo su tutte le colonne o colonne specifiche
+- **🌳 Vista gerarchica**: Le voci sono organizzate in nodi espandibili (codice base → varianti)
+- **📚 Elenco personalizzato**: Seleziona e salva le voci di interesse
+- **🗂️ Gestione categorie**: Organizza le voci selezionate in categorie personalizzate
+- **📥 Download**: Scarica i risultati in formato CSV
+- **⚡ Ottimizzazioni**: Ricerca veloce con debounce e paginazione
 
-## Project Structure
-
-```
-python-excel-search-app
-├── src
-│   ├── main.py          # Entry point of the application
-│   ├── gui.py           # GUI implementation
-│   ├── excel_utils.py   # Utilities for Excel file handling
-│   ├── filters.py       # Functions for filtering data
-│   └── categories.py     # Management of categories for grouping
-├── requirements.txt      # List of dependencies
-└── README.md             # Project documentation
-```
-
-## Installation
-
-To run this application, you need to install the required dependencies. You can do this by running:
+## Struttura del progetto
 
 ```
+├── app_streamlit.py        # Applicazione web Streamlit principale
+├── src/
+│   └── esamina_excel.py   # Funzioni per leggere e processare file Excel
+├── data/                  # Directory per i file Excel
+├── requirements.txt       # Dipendenze Python
+└── README.md             # Documentazione
+```
+
+## Installazione
+
+1. Clona il repository:
+```bash
+git clone <repository-url>
+cd python-excel-search-app
+```
+
+2. Installa le dipendenze:
+```bash
 pip install -r requirements.txt
 ```
 
-## Usage
+## Utilizzo
 
-1. Run the application by executing the following command:
+1. Avvia l'applicazione Streamlit:
+```bash
+streamlit run app_streamlit.py
+```
 
-   ```
-   python src/main.py
-   ```
+2. Apri il browser all'indirizzo mostrato (solitamente http://localhost:8501)
 
-2. Use the GUI to load an Excel file.
-3. Enter the text you want to search for in the provided search field.
-4. Apply filters to narrow down the results based on your criteria.
-5. Group entries using the defined categories.
-6. Select entries you wish to copy and use the copy functionality to move them to a new section.
+3. Carica un file Excel della Regione Puglia
 
-## Dependencies
+4. Utilizza le funzionalità:
+   - **Ricerca voci**: Filtra per categoria, cerca testo, seleziona voci
+   - **Il mio elenco**: Organizza le voci selezionate in categorie
 
-This project requires the following Python libraries:
+## Formato file Excel supportato
 
-- Tkinter or PyQt (for GUI development)
-- pandas or openpyxl (for handling Excel files)
+Il file Excel deve contenere:
+- Foglio denominato "Elenco Prezzi"
+- Colonne: TARIFFA, DESCRIZIONE dell'ARTICOLO, Unità di misura, Prezzo
+- Codici tariffa nel formato PUG2025/01.E01.001.XXX
 
-Make sure to check the `requirements.txt` file for the specific versions needed.
+## Dipendenze
 
-## Contributing
-
-Contributions are welcome! If you have suggestions for improvements or new features, feel free to open an issue or submit a pull request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- **streamlit**: Framework web per l'interfaccia utente
+- **pandas**: Manipolazione e analisi dati
+- **openpyxl**: Lettura file Excel
+- **numpy**: Calcoli numerici ottimizzati

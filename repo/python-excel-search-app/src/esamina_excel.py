@@ -1,4 +1,6 @@
 import re
+import pandas as pd
+
 def raggruppa_per_lettera_tariffa(df):
     """
     Raggruppa i record del DataFrame per lettera/le lettere contenute nel campo 'TARIFFA'.
@@ -7,19 +9,104 @@ def raggruppa_per_lettera_tariffa(df):
     if 'TARIFFA' not in df.columns:
         print("Colonna 'TARIFFA' non trovata!")
         return {}
-    # Estrai la/le lettere dopo la prima '/' e prima del prossimo punto
-    def estrai_lettere(tariffa):
+    
+    # Mappatura delle categorie numeriche alle descrizioni estese
+    categorie_estese = {
+        '01': '01 - Edilizia',
+        '02': '02 - Restauro e opere di recupero',
+        '03': '03 - Infrastrutture',
+        '04': '04 - Impianti elettrici',
+        '05': '05 - Impianti di adduzione idrica e di scarico',
+        '06': '06 - Impianti antincendio',
+        '07': '07 - Impianti termici',
+        '08': '08 - Fognature ed acquedotti',
+        '09': '09 - Sicurezza in azienda e in cantiere',
+        '10': '10 - Opere marittime',
+        '11': '11 - Impianti sportivi',
+        '12': '12 - Igiene ambientale',
+        '13': '13 - Opere idrauliche e di bonifica e consolidamento',
+        '14': '14 - Opere forestali',
+        '15': '15 - Sondaggi e prove',
+        '16': '16 - Opere a verde e irrigazione',
+        '17': '17 - Arredo urbano e parco giochi'
+    }
+    
+    # Estrai il numero della categoria dalla tariffa
+    def estrai_categoria(tariffa):
         if pd.isna(tariffa):
             return None
-        match = re.search(r'/\d+\.([A-Z]+)', str(tariffa))
+        match = re.search(r'/(\d+)\.', str(tariffa))
+        if match:
+            numero_cat = match.group(1)
+            return categorie_estese.get(numero_cat, numero_cat)
+        return None
+    
+    df['CATEGORIA_ESTESA'] = df['TARIFFA'].apply(estrai_categoria)
+    gruppi = {}
+    for categoria, gruppo in df.groupby('CATEGORIA_ESTESA'):
+        if categoria:
+            gruppi[categoria] = gruppo
+    return gruppi
+
+def crea_struttura_gerarchica(df):
+    """
+    Crea una struttura gerarchica basata sui codici tariffa.
+    Raggruppa per codice base (es: 01.E01.001) e tiene i dettagli come figli.
+    """
+    if 'TARIFFA' not in df.columns:
+        return {}
+    
+    def estrai_codice_base(tariffa):
+        if pd.isna(tariffa):
+            return None
+        # Estrae il pattern: PUG2025/01.E01.001
+        match = re.search(r'(PUG\d+/\d+\.[A-Z]+\.\d+)', str(tariffa))
         if match:
             return match.group(1)
         return None
-    df['LIVELLO_LETTERA'] = df['TARIFFA'].apply(estrai_lettere)
-    gruppi = {}
-    for lettera, gruppo in df.groupby('LIVELLO_LETTERA'):
-        gruppi[lettera] = gruppo
-    return gruppi
+    
+    def estrai_dettaglio(tariffa):
+        if pd.isna(tariffa):
+            return None
+        # Estrae tutto dopo il codice base: .001, .003, etc.
+        match = re.search(r'PUG\d+/\d+\.[A-Z]+\.\d+(.+)', str(tariffa))
+        if match:
+            return match.group(1)
+        return ""
+    
+    df_copia = df.copy()
+    df_copia['CODICE_BASE'] = df_copia['TARIFFA'].apply(estrai_codice_base)
+    df_copia['DETTAGLIO'] = df_copia['TARIFFA'].apply(estrai_dettaglio)
+    
+    struttura = {}
+    
+    for codice_base, gruppo in df_copia.groupby('CODICE_BASE'):
+        if codice_base:
+            # Ordina per dettaglio per avere un ordine logico
+            gruppo_ordinato = gruppo.sort_values('DETTAGLIO')
+            
+            # Il primo elemento (senza dettaglio o con dettaglio minimo) è il nodo principale
+            nodo_principale = None
+            dettagli = []
+            
+            for _, row in gruppo_ordinato.iterrows():
+                if row['DETTAGLIO'] == "" or row['DETTAGLIO'] == ".001":
+                    nodo_principale = row.to_dict()
+                else:
+                    dettagli.append(row.to_dict())
+            
+            # Se non c'è un nodo principale, prendi il primo
+            if nodo_principale is None and len(gruppo_ordinato) > 0:
+                nodo_principale = gruppo_ordinato.iloc[0].to_dict()
+                dettagli = [row.to_dict() for _, row in gruppo_ordinato.iloc[1:].iterrows()]
+            
+            struttura[codice_base] = {
+                'principale': nodo_principale,
+                'dettagli': dettagli,
+                'totale': len(gruppo_ordinato)
+            }
+    
+    return struttura
 import pandas as pd
 import os
 
