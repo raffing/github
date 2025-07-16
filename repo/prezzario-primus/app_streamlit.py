@@ -551,34 +551,89 @@ if df is not None and not df.empty:
                 if categoria_col:
                     all_categories = sorted(list(df[categoria_col].dropna().unique()))
                     
-                    # Crea una tabella riassuntiva delle categorie
-                    category_overview = []
-                    for cat in all_categories:
-                        df_cat = df[df[categoria_col] == cat]
-                        count = len(df_cat)
-                        # Calcola prezzo medio se possibile
-                        try:
-                            prezzi_validi = pd.to_numeric(df_cat['Prezzo'], errors='coerce').dropna()
-                            prezzo_medio = prezzi_validi.mean() if len(prezzi_validi) > 0 else 0
-                            valore_totale = prezzi_validi.sum() if len(prezzi_validi) > 0 else 0
-                        except:
-                            prezzo_medio = 0
-                            valore_totale = 0
-                        
-                        category_overview.append({
-                            "Categoria": cat,
-                            "N° Voci": count,
-                            "Prezzo Medio": f"€ {prezzo_medio:.2f}",
-                            "Valore Totale": f"€ {valore_totale:,.2f}"
-                        })
+                    # Inizializza la selezione delle categorie se non esiste
+                    if 'selected_categories_filter' not in st.session_state:
+                        st.session_state['selected_categories_filter'] = all_categories.copy()
                     
-                    if category_overview:
-                        overview_df = pd.DataFrame(category_overview)
-                        st.dataframe(
-                            overview_df,
-                            use_container_width=True,
-                            hide_index=True
-                        )
+                    # Sezione di controllo per la selezione
+                    col_sel1, col_sel2, col_sel3 = st.columns([2, 1, 1])
+                    with col_sel1:
+                        st.markdown("**Seleziona le categorie che ti interessano:**")
+                    with col_sel2:
+                        if st.button("✅ Seleziona Tutte", key="select_all_categories", use_container_width=True):
+                            st.session_state['selected_categories_filter'] = all_categories.copy()
+                            st.rerun()
+                    with col_sel3:
+                        if st.button("❌ Deseleziona Tutte", key="deselect_all_categories", use_container_width=True):
+                            st.session_state['selected_categories_filter'] = []
+                            st.rerun()
+                    
+                    # Lista di checkbox per ogni categoria
+                    selected_categories = []
+                    
+                    # Organizza in colonne per una migliore visualizzazione
+                    num_cols = 2
+                    cols = st.columns(num_cols)
+                    
+                    for i, cat in enumerate(all_categories):
+                        with cols[i % num_cols]:
+                            df_cat = df[df[categoria_col] == cat]
+                            count = len(df_cat)
+                            
+                            # Checkbox per ogni categoria
+                            is_selected = cat in st.session_state['selected_categories_filter']
+                            checkbox_key = f"category_checkbox_{i}_{cat}"
+                            
+                            if st.checkbox(
+                                f"{cat} ({count} voci)",
+                                value=is_selected,
+                                key=checkbox_key
+                            ):
+                                if cat not in selected_categories:
+                                    selected_categories.append(cat)
+                            else:
+                                if cat in st.session_state['selected_categories_filter']:
+                                    st.session_state['selected_categories_filter'].remove(cat)
+                    
+                    # Aggiorna le categorie selezionate
+                    for cat in selected_categories:
+                        if cat not in st.session_state['selected_categories_filter']:
+                            st.session_state['selected_categories_filter'].append(cat)
+                    
+                    # Mostra riepilogo delle categorie selezionate
+                    st.markdown(f"**Categorie selezionate:** {len(st.session_state['selected_categories_filter'])}/{len(all_categories)}")
+                    
+                    # Crea una tabella riassuntiva solo delle categorie selezionate
+                    if st.session_state['selected_categories_filter']:
+                        category_overview = []
+                        for cat in st.session_state['selected_categories_filter']:
+                            df_cat = df[df[categoria_col] == cat]
+                            count = len(df_cat)
+                            # Calcola prezzo medio se possibile
+                            try:
+                                prezzi_validi = pd.to_numeric(df_cat['Prezzo'], errors='coerce').dropna()
+                                prezzo_medio = prezzi_validi.mean() if len(prezzi_validi) > 0 else 0
+                                valore_totale = prezzi_validi.sum() if len(prezzi_validi) > 0 else 0
+                            except:
+                                prezzo_medio = 0
+                                valore_totale = 0
+                            
+                            category_overview.append({
+                                "Categoria": cat,
+                                "N° Voci": count,
+                                "Prezzo Medio": f"€ {prezzo_medio:.2f}",
+                                "Valore Totale": f"€ {valore_totale:,.2f}"
+                            })
+                        
+                        if category_overview:
+                            overview_df = pd.DataFrame(category_overview)
+                            st.dataframe(
+                                overview_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                    else:
+                        st.warning("⚠️ Nessuna categoria selezionata. I filtri mostreranno tutti i risultati.")
                 else:
                     st.info("Nessuna categoria rilevata nel dataset.")
             
@@ -605,8 +660,23 @@ if df is not None and not df.empty:
 
             # Filtro categoria
             if categoria_col:
-                all_categories = sorted(list(df[categoria_col].dropna().unique()))
-                categoria_sel = st.selectbox("Categoria", ["Tutte le categorie"] + all_categories, key="categoria_filter_ricerca")
+                # Usa solo le categorie selezionate nel filtro
+                if 'selected_categories_filter' in st.session_state and st.session_state['selected_categories_filter']:
+                    filtered_categories = sorted(st.session_state['selected_categories_filter'])
+                    categoria_options = ["Tutte le categorie selezionate"] + filtered_categories
+                    help_text = f"Mostra solo le {len(filtered_categories)} categorie selezionate nell'expander sopra"
+                else:
+                    # Fallback a tutte le categorie se nessuna è selezionata
+                    all_categories = sorted(list(df[categoria_col].dropna().unique()))
+                    categoria_options = ["Tutte le categorie"] + all_categories
+                    help_text = "Seleziona delle categorie nell'expander sopra per filtrare questo elenco"
+                
+                categoria_sel = st.selectbox(
+                    "Categoria", 
+                    categoria_options, 
+                    key="categoria_filter_ricerca",
+                    help=help_text
+                )
             else:
                 categoria_sel = "Tutte le categorie"
 
@@ -631,10 +701,20 @@ if df is not None and not df.empty:
             if 'batch_start' not in st.session_state:
                 st.session_state['batch_start'] = 0
             batch_size = 50
-            if categoria_sel == "Tutte le categorie" or not categoria_col:
-                df_categoria = df
+            
+            # Gestione filtro categoria con selezione multipla
+            if categoria_sel in ["Tutte le categorie", "Tutte le categorie selezionate"] or not categoria_col:
+                if categoria_sel == "Tutte le categorie selezionate" and 'selected_categories_filter' in st.session_state:
+                    # Filtra solo per le categorie selezionate
+                    if st.session_state['selected_categories_filter']:
+                        df_categoria = df[df[categoria_col].isin(st.session_state['selected_categories_filter'])]
+                    else:
+                        df_categoria = df  # Se nessuna categoria selezionata, mostra tutto
+                else:
+                    df_categoria = df  # Tutte le categorie
             else:
                 df_categoria = df[df[categoria_col] == categoria_sel]
+            
             df_batch, total_found, df_filtered = batch_search_ricerca(df_categoria, search_tariffa, search_desc, search_unita, search_prezzo, batch_size, st.session_state['batch_start'])
 
             # Statistiche
@@ -687,8 +767,12 @@ if df is not None and not df.empty:
             # Visualizzazione risultati
             if total_found > 0:
                 # Titolo dinamico basato sulla categoria selezionata
-                if categoria_sel == "Tutte le categorie":
-                    st.markdown("### 🌳 Risultati della ricerca organizzati per categoria")
+                if categoria_sel in ["Tutte le categorie", "Tutte le categorie selezionate"]:
+                    if categoria_sel == "Tutte le categorie selezionate":
+                        num_selected = len(st.session_state.get('selected_categories_filter', []))
+                        st.markdown(f"### 🌳 Risultati per le {num_selected} categorie selezionate")
+                    else:
+                        st.markdown("### 🌳 Risultati della ricerca organizzati per categoria")
                 else:
                     st.markdown(f"### 🌳 Risultati per: **{categoria_sel}**")
                     
