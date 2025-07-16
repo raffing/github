@@ -1,35 +1,117 @@
 import json
+import base64
+from datetime import datetime
 
-# Funzione di autosalvataggio su file backup
+# JavaScript per gestire il local storage
+LOCAL_STORAGE_JS = """
+<script>
+// Funzioni per gestire il local storage
+function saveToLocalStorage(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+        return true;
+    } catch (e) {
+        console.error('Errore nel salvataggio:', e);
+        return false;
+    }
+}
+
+function loadFromLocalStorage(key) {
+    try {
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : null;
+    } catch (e) {
+        console.error('Errore nel caricamento:', e);
+        return null;
+    }
+}
+
+function deleteFromLocalStorage(key) {
+    try {
+        localStorage.removeItem(key);
+        return true;
+    } catch (e) {
+        console.error('Errore nella cancellazione:', e);
+        return false;
+    }
+}
+
+// Funzione per scaricare dati come file JSON
+function downloadJSON(data, filename) {
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+// Esponi le funzioni a Streamlit
+window.localStorageHelpers = {
+    save: saveToLocalStorage,
+    load: loadFromLocalStorage,
+    delete: deleteFromLocalStorage,
+    download: downloadJSON
+};
+</script>
+"""
+
+# Funzione di autosalvataggio in localStorage
 def auto_save_work_state():
     work_state = {
         'timestamp': pd.Timestamp.now().isoformat(),
         'custom_categories': st.session_state.get('custom_categories', []),
         'selected_rows': st.session_state.get('selected_rows', []),
-        'version': '1.0'
+        'version': '1.1'  # Incrementata la versione per il nuovo formato
     }
-    backup_path = os.path.join("data", "backup_autosave.json")
-    os.makedirs("data", exist_ok=True)
-    with open(backup_path, 'w', encoding='utf-8') as f:
-        json.dump(work_state, f, ensure_ascii=False, indent=2)
+    
+    # Salva in session state per poter essere utilizzato da JavaScript
+    st.session_state['auto_save_data'] = work_state
+    
+    # Inietta JavaScript per salvare nel localStorage
+    components.html(f"""
+    {LOCAL_STORAGE_JS}
+    <script>
+    if (window.localStorageHelpers) {{
+        const success = window.localStorageHelpers.save('prezzario_autosave', {json.dumps(work_state)});
+        if (success) {{
+            console.log('Autosalvataggio completato');
+        }}
+    }}
+    </script>
+    """, height=0)
 
-# Funzione di caricamento backup
+# Funzione per preparare il download del lavoro
+def prepare_work_download():
+    """Prepara i dati per il download come file JSON"""
+    work_state = {
+        'timestamp': datetime.now().isoformat(),
+        'custom_categories': st.session_state.get('custom_categories', []),
+        'selected_rows': st.session_state.get('selected_rows', []),
+        'version': '1.1'
+    }
+    
+    # Crea il nome del file
+    filename = f"lavoro_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    
+    # Converte in JSON per il download
+    json_str = json.dumps(work_state, ensure_ascii=False, indent=2)
+    
+    return json_str, filename
+
+# Funzione di caricamento backup (ora non più utilizzata)
 def try_load_autosave():
-    backup_path = os.path.join("data", "backup_autosave.json")
-    if os.path.exists(backup_path):
-        with open(backup_path, 'r', encoding='utf-8') as f:
-            try:
-                work_data = json.load(f)
-                if 'custom_categories' in work_data and 'selected_rows' in work_data:
-                    st.session_state['custom_categories'] = work_data['custom_categories']
-                    st.session_state['selected_rows'] = work_data['selected_rows']
-                    return True, work_data.get('timestamp', '')
-            except Exception:
-                pass
+    # Questa funzione ora utilizza JavaScript per caricare dal localStorage
+    # Restituisce sempre False per disabilitare il caricamento automatico
     return False, None
 
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import os
@@ -49,27 +131,18 @@ if 'selected_custom_category' not in st.session_state:
     st.session_state['selected_custom_category'] = None
 
 def save_work_state():
-    """Salva lo stato del lavoro in un file JSON"""
-    import json
-    from datetime import datetime
-    
+    """Prepara i dati per il download come file JSON"""
     work_state = {
         'timestamp': datetime.now().isoformat(),
         'custom_categories': st.session_state['custom_categories'],
         'selected_rows': st.session_state['selected_rows'],
-        'version': '1.0'
+        'version': '1.1'
     }
     
     filename = f"lavoro_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    filepath = os.path.join("data", filename)
+    json_str = json.dumps(work_state, ensure_ascii=False, indent=2)
     
-    # Crea la directory se non esiste
-    os.makedirs("data", exist_ok=True)
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(work_state, f, ensure_ascii=False, indent=2)
-    
-    return filename
+    return json_str, filename
 
 def load_work_state(uploaded_work_file):
     """Carica lo stato del lavoro da un file JSON"""
@@ -93,39 +166,33 @@ import glob
 if not st.session_state['file_loaded']:
     st.title("🏛️ Portale Tariffe Regione Puglia")
     st.markdown("### Carica il file Excel per iniziare")
-    # Proponi ripristino backup se esiste
-    restored = st.session_state.get('restored_autosave', False)
-    if not restored:
-        found, ts = try_load_autosave()
-        if found:
-            label = "⚡ Ripristina lavoro non salvato"
-            if ts:
-                label += f" (backup {str(ts)[:19].replace('T',' ')})"
-            if st.button(label, type="primary"):
-                st.session_state['restored_autosave'] = True
-                st.success("Lavoro ripristinato dal backup automatico!")
-                st.rerun()
+    
+    # Aggiungi JavaScript helper per verificare localStorage
+    if 'main_js_loaded' not in st.session_state:
+        components.html(LOCAL_STORAGE_JS, height=0)
+        st.session_state['main_js_loaded'] = True
+    
+    # Informazione sul salvataggio automatico
+    st.info("💡 I tuoi dati vengono salvati automaticamente nel browser. Vai al tab **Impostazioni** per gestire i backup.")
 
-    # Cerca file Excel già presenti in data/
+    # Cerca file Excel già presenti in data/ (se ce ne sono)
     excel_files = sorted(glob.glob(os.path.join("data", "*.xlsx")))
-    default_file = excel_files[0] if excel_files else None
+    if excel_files:
+        st.info(f"📁 File Excel disponibili nella cartella data: {len(excel_files)}")
+        default_file = excel_files[0]
+        
+        # Se non è stato caricato nessun file, carica il primo file Excel trovato
+        if 'uploaded_file_data' not in st.session_state:
+            st.session_state['uploaded_file_data'] = default_file
+            st.session_state['file_loaded'] = True
+            st.rerun()
 
-    # Se non è stato caricato nessun file, carica il primo file Excel trovato
-    if default_file and 'uploaded_file_data' not in st.session_state:
-        st.session_state['uploaded_file_data'] = default_file
-        st.session_state['file_loaded'] = True
-        st.rerun()
-
-    # Permetti comunque di caricare un nuovo file se richiesto
-    uploaded_file = st.file_uploader("📂 Scegli un nuovo file Excel da aggiungere", type=["xlsx"])
+    # Caricamento di un nuovo file Excel
+    uploaded_file = st.file_uploader("📂 Carica il tuo file Excel", type=["xlsx"], help="Il file verrà processato temporaneamente e non salvato sul server")
     if uploaded_file:
-        # Crea la cartella 'data' se non esiste
-        os.makedirs("data", exist_ok=True)
-        # Salva il nuovo file nella cartella data/ con nome originale
-        save_path = os.path.join("data", uploaded_file.name)
-        with open(save_path, "wb") as f:
-            f.write(uploaded_file.read())
-        st.session_state['uploaded_file_data'] = save_path
+        # Salva temporaneamente in memoria
+        st.session_state['uploaded_file_content'] = uploaded_file.read()
+        st.session_state['uploaded_file_name'] = uploaded_file.name
         st.session_state['file_loaded'] = True
         st.rerun()
 else:
@@ -134,85 +201,39 @@ else:
 
 df = None
 
-if uploaded_file:
-    # Salva il file e imposta il flag
-    if not st.session_state['file_loaded']:
-        temp_path = os.path.join("data", "temp_uploaded.xlsx")
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.read())
-        st.session_state['uploaded_file_data'] = temp_path
-        st.session_state['file_loaded'] = True
-        st.rerun()
-    
+# Gestione caricamento file
+if st.session_state.get('file_loaded', False):
     # Carica dati se non già caricati
     if 'df_data' not in st.session_state:
-        temp_path = st.session_state['uploaded_file_data']
-        df = esamina_excel(temp_path)
-        if df is not None and not df.empty:
-            # Aggiungi la colonna CATEGORIA_ESTESA se non esiste
-            if 'CATEGORIA_ESTESA' not in df.columns:
-                # Mappatura categorie
-                categorie_map = {
-                    '01': '01 - Edilizia',
-                    '02': '02 - Restauro e opere di recupero', 
-                    '03': '03 - Infrastrutture',
-                    '04': '04 - Impianti elettrici',
-                    '05': '05 - Impianti di adduzione idrica e di scarico',
-                    '06': '06 - Impianti antincendio',
-                    '07': '07 - Impianti termici',
-                    '08': '08 - Fognature ed acquedotti',
-                    '09': '09 - Sicurezza in azienda e in cantiere',
-                    '10': '10 - Opere marittime',
-                    '11': '11 - Impianti sportivi',
-                    '12': '12 - Igiene ambientale',
-                    '13': '13 - Opere idrauliche e di bonifica e consolidamento',
-                    '14': '14 - Opere forestali',
-                    '15': '15 - Sondaggi e prove',
-                    '16': '16 - Opere a verde e irrigazione',
-                    '17': '17 - Arredo urbano e parco giochi'
-                }
-                
-                def estrai_categoria(tariffa):
-                    if pd.isna(tariffa):
-                        return None
-                    match = re.search(r'/(\d+)\.', str(tariffa))
-                    if match:
-                        numero_cat = match.group(1)
-                        return categorie_map.get(numero_cat, numero_cat)
-                    return None
-                
-                df['CATEGORIA_ESTESA'] = df['TARIFFA'].apply(estrai_categoria)
-            
-            st.session_state['df_data'] = df
+        # Verifica se abbiamo un file da un percorso esistente o contenuto in memoria
+        if 'uploaded_file_content' in st.session_state:
+            # File caricato dall'utente - usa contenuto in memoria
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                tmp_file.write(st.session_state['uploaded_file_content'])
+                temp_path = tmp_file.name
+        elif st.session_state.get('uploaded_file_data'):
+            # File esistente nella cartella data
+            temp_path = st.session_state['uploaded_file_data']
         else:
-            st.error("⚠️ Errore nel caricamento del file")
-            st.session_state['file_loaded'] = False
-            st.rerun()
-    
-    df = st.session_state['df_data']
-    
-if df is not None and not df.empty:
-    # TABS PRINCIPALI: Impostazioni, Ricerca Dati, Il Mio Elenco
-    tab_impostazioni, tab_ricerca, tab_elenco = st.tabs(["⚙️ Impostazioni", "🔍 Ricerca Dati", "📚 Il Mio Elenco"])
-
-    with tab_impostazioni:
-        st.markdown("### ⚙️ Impostazioni e Gestione Categorie")
-        # Caricamento/cambio file Excel
-        st.markdown("#### 📂 Caricamento o Cambio File Excel")
-        uploaded_file = st.file_uploader("Scegli un file Excel", type=["xlsx"], key="settings_file_uploader")
-        if uploaded_file:
-            save_path = os.path.join("data", uploaded_file.name)
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.read())
-            st.session_state['uploaded_file_data'] = save_path
-            st.session_state['file_loaded'] = True
-            # Carica subito i dati
-            df_temp = esamina_excel(save_path)
-            if df_temp is not None and not df_temp.empty:
-                if 'CATEGORIA_ESTESA' not in df_temp.columns:
+            temp_path = None
+        
+        if temp_path:
+            df = esamina_excel(temp_path)
+            
+            # Pulisci il file temporaneo se era stato creato
+            if 'uploaded_file_content' in st.session_state and temp_path != st.session_state.get('uploaded_file_data'):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            if df is not None and not df.empty:
+                # Aggiungi la colonna CATEGORIA_ESTESA se non esiste
+                if 'CATEGORIA_ESTESA' not in df.columns:
+                    # Mappatura categorie
                     categorie_map = {
                         '01': '01 - Edilizia',
-                        '02': '02 - Restauro e opere di recupero',
+                        '02': '02 - Restauro e opere di recupero', 
                         '03': '03 - Infrastrutture',
                         '04': '04 - Impianti elettrici',
                         '05': '05 - Impianti di adduzione idrica e di scarico',
@@ -229,6 +250,7 @@ if df is not None and not df.empty:
                         '16': '16 - Opere a verde e irrigazione',
                         '17': '17 - Arredo urbano e parco giochi'
                     }
+                    
                     def estrai_categoria(tariffa):
                         if pd.isna(tariffa):
                             return None
@@ -237,13 +259,87 @@ if df is not None and not df.empty:
                             numero_cat = match.group(1)
                             return categorie_map.get(numero_cat, numero_cat)
                         return None
-                    df_temp['CATEGORIA_ESTESA'] = df_temp['TARIFFA'].apply(estrai_categoria)
-                st.session_state['df_data'] = df_temp
-                st.success(f"File caricato e dati pronti: {uploaded_file.name}")
+                    
+                    df['CATEGORIA_ESTESA'] = df['TARIFFA'].apply(estrai_categoria)
+                
+                st.session_state['df_data'] = df
             else:
                 st.error("⚠️ Errore nel caricamento del file")
+                st.session_state['file_loaded'] = False
+                st.rerun()
+    
+    df = st.session_state.get('df_data', None)
+    
+if df is not None and not df.empty:
+    # TABS PRINCIPALI: Impostazioni, Ricerca Dati, Il Mio Elenco
+    tab_impostazioni, tab_ricerca, tab_elenco = st.tabs(["⚙️ Impostazioni", "🔍 Ricerca Dati", "📚 Il Mio Elenco"])
+
+    with tab_impostazioni:
+        st.markdown("### ⚙️ Impostazioni e Gestione Categorie")
+        # Caricamento/cambio file Excel
+        st.markdown("#### 📂 Caricamento o Cambio File Excel")
+        uploaded_file = st.file_uploader("Scegli un file Excel", type=["xlsx"], key="settings_file_uploader", help="Il file verrà processato temporaneamente senza essere salvato sul server")
+        if uploaded_file:
+            # Salva in memoria senza scrivere su disco
+            st.session_state['uploaded_file_content'] = uploaded_file.read()
+            st.session_state['uploaded_file_name'] = uploaded_file.name
+            st.session_state['file_loaded'] = True
+            
+            # Carica subito i dati usando file temporaneo
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                tmp_file.write(st.session_state['uploaded_file_content'])
+                temp_path = tmp_file.name
+            
+            try:
+                df_temp = esamina_excel(temp_path)
+                if df_temp is not None and not df_temp.empty:
+                    if 'CATEGORIA_ESTESA' not in df_temp.columns:
+                        categorie_map = {
+                            '01': '01 - Edilizia',
+                            '02': '02 - Restauro e opere di recupero',
+                            '03': '03 - Infrastrutture',
+                            '04': '04 - Impianti elettrici',
+                            '05': '05 - Impianti di adduzione idrica e di scarico',
+                            '06': '06 - Impianti antincendio',
+                            '07': '07 - Impianti termici',
+                            '08': '08 - Fognature ed acquedotti',
+                            '09': '09 - Sicurezza in azienda e in cantiere',
+                            '10': '10 - Opere marittime',
+                            '11': '11 - Impianti sportivi',
+                            '12': '12 - Igiene ambientale',
+                            '13': '13 - Opere idrauliche e di bonifica e consolidamento',
+                            '14': '14 - Opere forestali',
+                            '15': '15 - Sondaggi e prove',
+                            '16': '16 - Opere a verde e irrigazione',
+                            '17': '17 - Arredo urbano e parco giochi'
+                        }
+                        def estrai_categoria(tariffa):
+                            if pd.isna(tariffa):
+                                return None
+                            match = re.search(r'/(\d+)\.', str(tariffa))
+                            if match:
+                                numero_cat = match.group(1)
+                                return categorie_map.get(numero_cat, numero_cat)
+                            return None
+                        df_temp['CATEGORIA_ESTESA'] = df_temp['TARIFFA'].apply(estrai_categoria)
+                    st.session_state['df_data'] = df_temp
+                    st.success(f"File caricato e dati pronti: {uploaded_file.name}")
+                else:
+                    st.error("⚠️ Errore nel caricamento del file")
+            except Exception as e:
+                st.error(f"⚠️ Errore durante il processamento del file: {str(e)}")
+            finally:
+                # Pulisci il file temporaneo
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
             st.rerun()
-        st.info(f"File attualmente caricato: {os.path.basename(st.session_state.get('uploaded_file_data', 'Nessun file'))}")
+        
+        # Mostra info sul file corrente
+        current_file = st.session_state.get('uploaded_file_name', 'Nessun file caricato')
+        st.info(f"📄 File attualmente utilizzato: {current_file}")
 
         # Gestione categorie personalizzate
         st.markdown("#### 🏗️ Gestione Categorie Personalizzate")
@@ -279,31 +375,104 @@ if df is not None and not df.empty:
             st.info("Nessuna categoria personalizzata creata.")
 
         # Salvataggio/caricamento lavoro
-        st.markdown("#### 💾 Salvataggio e Caricamento Lavoro")
-        col_save, col_load = st.columns(2)
+        st.markdown("#### 💾 Salvataggio e Caricamento Lavoro Locale")
+        
+        # Aggiungi JavaScript helper se non già presente
+        if 'js_loaded' not in st.session_state:
+            components.html(LOCAL_STORAGE_JS, height=0)
+            st.session_state['js_loaded'] = True
+        
+        # Informazioni sul salvataggio locale
+        st.info("ℹ️ Il lavoro viene salvato automaticamente sul tuo dispositivo. Puoi anche scaricare un backup o caricare un lavoro precedente.")
+        
+        col_save, col_load, col_restore = st.columns(3)
+        
         with col_save:
-            if st.button("💾 Salva lavoro", use_container_width=True):
+            if st.button("� Scarica Backup", use_container_width=True, help="Scarica il tuo lavoro come file JSON"):
                 if st.session_state['selected_rows'] or st.session_state['custom_categories']:
                     try:
-                        filename = save_work_state()
-                        st.success(f"✅ Lavoro salvato!\n`{filename}`")
+                        json_str, filename = save_work_state()
+                        
+                        # Crea il download usando streamlit
+                        st.download_button(
+                            label="⬇️ Download File JSON",
+                            data=json_str,
+                            file_name=filename,
+                            mime="application/json",
+                            use_container_width=True,
+                            key="download_backup"
+                        )
+                        st.success(f"✅ Backup pronto per il download!")
                     except Exception as e:
-                        st.error(f"❌ Errore nel salvataggio: {str(e)}")
+                        st.error(f"❌ Errore nella preparazione del backup: {str(e)}")
                 else:
                     st.warning("⚠️ Nessun lavoro da salvare")
+        
         with col_load:
             uploaded_work = st.file_uploader(
-                "Carica lavoro salvato",
+                "📤 Carica Backup",
                 type=["json"],
-                key="work_file_uploader_settings"
+                key="work_file_uploader_settings",
+                help="Carica un file JSON precedentemente scaricato"
             )
             if uploaded_work:
                 success, message = load_work_state(uploaded_work)
                 if success:
+                    # Salva anche nel localStorage dopo il caricamento
+                    auto_save_work_state()
                     st.success(f"✅ {message}")
                     st.rerun()
                 else:
                     st.error(f"❌ {message}")
+        
+        with col_restore:
+            # Bottone per ripristinare dal localStorage
+            if st.button("🔄 Ripristina Automatico", use_container_width=True, help="Ripristina l'ultimo lavoro salvato automaticamente"):
+                # Inietta JavaScript per caricare dal localStorage
+                components.html(f"""
+                {LOCAL_STORAGE_JS}
+                <script>
+                if (window.localStorageHelpers) {{
+                    const data = window.localStorageHelpers.load('prezzario_autosave');
+                    if (data) {{
+                        // Invia i dati a Streamlit tramite un evento personalizzato
+                        const event = new CustomEvent('localStorageData', {{ detail: data }});
+                        document.dispatchEvent(event);
+                        console.log('Dati caricati dal localStorage:', data);
+                    }} else {{
+                        console.log('Nessun dato trovato nel localStorage');
+                    }}
+                }}
+                </script>
+                """, height=100)
+                
+                # Per ora mostra un messaggio che richiede refresh
+                st.info("🔄 Se hai dati salvati automaticamente, ricarica la pagina per ripristinarli.")
+        
+        # Sezione per cancellare i dati locali
+        st.markdown("#### 🗑️ Gestione Dati Locali")
+        col_clear1, col_clear2 = st.columns(2)
+        
+        with col_clear1:
+            if st.button("🗑️ Cancella Tutto", use_container_width=True, help="Cancella tutto il lavoro corrente"):
+                st.session_state['selected_rows'] = []
+                st.session_state['custom_categories'] = []
+                auto_save_work_state()  # Salva lo stato vuoto
+                st.success("✅ Tutto il lavoro è stato cancellato!")
+                st.rerun()
+        
+        with col_clear2:
+            if st.button("🧹 Pulisci Cache Browser", use_container_width=True, help="Rimuove i dati salvati automaticamente dal browser"):
+                components.html(f"""
+                {LOCAL_STORAGE_JS}
+                <script>
+                if (window.localStorageHelpers) {{
+                    window.localStorageHelpers.delete('prezzario_autosave');
+                    console.log('Cache del browser pulita');
+                }}
+                </script>
+                """, height=0)
+                st.success("✅ Cache del browser pulita!")
 
     with tab_ricerca:
         st.markdown("### 🔍 Ricerca e Filtri Dati")
