@@ -1,6 +1,106 @@
 import json
 import base64
 from datetime import datetime
+import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+import numpy as np
+import os
+import re
+from src.esamina_excel import esamina_excel, raggruppa_per_lettera_tariffa, crea_struttura_gerarchica
+
+# COSTANTI GLOBALI
+CATEGORIE_MAP = {
+    '01': '01 - Edilizia',
+    '02': '02 - Restauro e opere di recupero',
+    '03': '03 - Infrastrutture',
+    '04': '04 - Impianti elettrici',
+    '05': '05 - Impianti di adduzione idrica e di scarico',
+    '06': '06 - Impianti antincendio',
+    '07': '07 - Impianti termici',
+    '08': '08 - Fognature ed acquedotti',
+    '09': '09 - Sicurezza in azienda e in cantiere',
+    '10': '10 - Opere marittime',
+    '11': '11 - Impianti sportivi',
+    '12': '12 - Igiene ambientale',
+    '13': '13 - Opere idrauliche e di bonifica e consolidamento',
+    '14': '14 - Opere forestali',
+    '15': '15 - Sondaggi e prove',
+    '16': '16 - Opere a verde e irrigazione',
+    '17': '17 - Arredo urbano e parco giochi'
+}
+
+# FUNZIONI UTILITY
+def estrai_categoria(tariffa):
+    """Estrae il numero di categoria da una tariffa"""
+    if pd.isna(tariffa):
+        return None
+    
+    # Prova diversi pattern per estrarre la categoria
+    patterns = [
+        r'/(\d{2})\.',  # /01. /02. etc.
+        r'\.(\d{2})\.',  # .01. .02. etc.
+        r'(\d{2})\.',   # 01. 02. etc. (all'inizio)
+        r'/(\d{1,2})\.',  # /1. /01. etc. (più flessibile)
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, str(tariffa))
+        if match:
+            numero_cat = match.group(1).zfill(2)  # Assicura 2 cifre (01, 02, etc.)
+            categoria = CATEGORIE_MAP.get(numero_cat, f"Categoria {numero_cat}")
+            return categoria
+    
+    return None
+
+def get_categoria_from_tariffa(tariffa):
+    """Estrae solo il numero di categoria da una tariffa"""
+    if pd.isna(tariffa):
+        return None
+    
+    patterns = [
+        r'/(\d{2})\.',
+        r'\.(\d{2})\.',
+        r'(\d{2})\.',
+        r'/(\d{1,2})\.',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, str(tariffa))
+        if match:
+            return match.group(1).zfill(2)
+    
+    return None
+
+def aggiungi_categoria_estesa(df):
+    """Aggiunge la colonna CATEGORIA_ESTESA se non esiste"""
+    if 'CATEGORIA_ESTESA' not in df.columns:
+        # Prima di applicare la funzione, mostra alcuni esempi di tariffe per debug
+        print("Debug: Prime 10 tariffe nel dataset:")
+        print(df['TARIFFA'].head(10).tolist())
+        
+        df['CATEGORIA_ESTESA'] = df['TARIFFA'].apply(estrai_categoria)
+        
+        # Verifica quante categorie sono state estratte
+        categorie_trovate = df['CATEGORIA_ESTESA'].value_counts()
+        print("Debug: Categorie estratte:")
+        print(categorie_trovate)
+        
+    return df
+
+def group_results_by_category(df_batch):
+    """Raggruppa i risultati per categoria"""
+    groups = {}
+    for _, row in df_batch.iterrows():
+        categoria_num = get_categoria_from_tariffa(row['TARIFFA'])
+        if categoria_num:
+            categoria_nome = CATEGORIE_MAP.get(categoria_num, f"Categoria {categoria_num}")
+        else:
+            categoria_nome = "Senza Categoria"
+        if categoria_nome not in groups:
+            groups[categoria_nome] = []
+        groups[categoria_nome].append(row)
+    return groups
 
 # JavaScript per gestire il local storage
 LOCAL_STORAGE_JS = """
@@ -109,14 +209,31 @@ def try_load_autosave():
     # Restituisce sempre False per disabilitare il caricamento automatico
     return False, None
 
+# Funzione di test per debug categorie
+def test_estrazione_categorie(df):
+    """Funzione di test per verificare l'estrazione delle categorie"""
+    if df is not None and not df.empty:
+        st.write("### 🔍 Debug Estrazione Categorie")
+        
+        # Mostra alcuni esempi di tariffe
+        esempi_tariffe = df['TARIFFA'].head(10).tolist()
+        st.write("**Esempi di tariffe nel dataset:**")
+        for i, tariffa in enumerate(esempi_tariffe, 1):
+            categoria = estrai_categoria(tariffa)
+            st.write(f"{i}. `{tariffa}` → `{categoria}`")
+        
+        # Mostra il conteggio delle categorie
+        if 'CATEGORIA_ESTESA' in df.columns:
+            conteggio = df['CATEGORIA_ESTESA'].value_counts()
+            st.write("**Conteggio categorie estratte:**")
+            st.write(conteggio)
+        
+        # Mostra le righe senza categoria
+        senza_categoria = df[df['CATEGORIA_ESTESA'].isna()]
+        if not senza_categoria.empty:
+            st.write(f"**Righe senza categoria ({len(senza_categoria)}):**")
+            st.write(senza_categoria[['TARIFFA', 'DESCRIZIONE']].head())
 
-import streamlit as st
-import streamlit.components.v1 as components
-import pandas as pd
-import numpy as np
-import os
-import re
-from src.esamina_excel import esamina_excel, raggruppa_per_lettera_tariffa, crea_struttura_gerarchica
 
 st.set_page_config(page_title="Portale Tariffe Regione Puglia", layout="wide")
 
@@ -228,40 +345,8 @@ if st.session_state.get('file_loaded', False):
                 except:
                     pass
             if df is not None and not df.empty:
-                # Aggiungi la colonna CATEGORIA_ESTESA se non esiste
-                if 'CATEGORIA_ESTESA' not in df.columns:
-                    # Mappatura categorie
-                    categorie_map = {
-                        '01': '01 - Edilizia',
-                        '02': '02 - Restauro e opere di recupero', 
-                        '03': '03 - Infrastrutture',
-                        '04': '04 - Impianti elettrici',
-                        '05': '05 - Impianti di adduzione idrica e di scarico',
-                        '06': '06 - Impianti antincendio',
-                        '07': '07 - Impianti termici',
-                        '08': '08 - Fognature ed acquedotti',
-                        '09': '09 - Sicurezza in azienda e in cantiere',
-                        '10': '10 - Opere marittime',
-                        '11': '11 - Impianti sportivi',
-                        '12': '12 - Igiene ambientale',
-                        '13': '13 - Opere idrauliche e di bonifica e consolidamento',
-                        '14': '14 - Opere forestali',
-                        '15': '15 - Sondaggi e prove',
-                        '16': '16 - Opere a verde e irrigazione',
-                        '17': '17 - Arredo urbano e parco giochi'
-                    }
-                    
-                    def estrai_categoria(tariffa):
-                        if pd.isna(tariffa):
-                            return None
-                        match = re.search(r'/(\d+)\.', str(tariffa))
-                        if match:
-                            numero_cat = match.group(1)
-                            return categorie_map.get(numero_cat, numero_cat)
-                        return None
-                    
-                    df['CATEGORIA_ESTESA'] = df['TARIFFA'].apply(estrai_categoria)
-                
+                # Usa la funzione utility per aggiungere CATEGORIA_ESTESA
+                df = aggiungi_categoria_estesa(df)
                 st.session_state['df_data'] = df
             else:
                 st.error("⚠️ Errore nel caricamento del file")
@@ -294,35 +379,8 @@ if df is not None and not df.empty:
             try:
                 df_temp = esamina_excel(temp_path)
                 if df_temp is not None and not df_temp.empty:
-                    if 'CATEGORIA_ESTESA' not in df_temp.columns:
-                        categorie_map = {
-                            '01': '01 - Edilizia',
-                            '02': '02 - Restauro e opere di recupero',
-                            '03': '03 - Infrastrutture',
-                            '04': '04 - Impianti elettrici',
-                            '05': '05 - Impianti di adduzione idrica e di scarico',
-                            '06': '06 - Impianti antincendio',
-                            '07': '07 - Impianti termici',
-                            '08': '08 - Fognature ed acquedotti',
-                            '09': '09 - Sicurezza in azienda e in cantiere',
-                            '10': '10 - Opere marittime',
-                            '11': '11 - Impianti sportivi',
-                            '12': '12 - Igiene ambientale',
-                            '13': '13 - Opere idrauliche e di bonifica e consolidamento',
-                            '14': '14 - Opere forestali',
-                            '15': '15 - Sondaggi e prove',
-                            '16': '16 - Opere a verde e irrigazione',
-                            '17': '17 - Arredo urbano e parco giochi'
-                        }
-                        def estrai_categoria(tariffa):
-                            if pd.isna(tariffa):
-                                return None
-                            match = re.search(r'/(\d+)\.', str(tariffa))
-                            if match:
-                                numero_cat = match.group(1)
-                                return categorie_map.get(numero_cat, numero_cat)
-                            return None
-                        df_temp['CATEGORIA_ESTESA'] = df_temp['TARIFFA'].apply(estrai_categoria)
+                    # Usa la funzione utility
+                    df_temp = aggiungi_categoria_estesa(df_temp)
                     st.session_state['df_data'] = df_temp
                     st.success(f"File caricato e dati pronti: {uploaded_file.name}")
                 else:
@@ -480,6 +538,11 @@ if df is not None and not df.empty:
             st.warning("⚠️ Nessun dato caricato. Carica un file Excel dal tab Impostazioni.")
         else:
             df = st.session_state['df_data']
+            
+            # SEZIONE DEBUG (rimuovi dopo aver risolto)
+            with st.expander("🐛 Debug Categorie", expanded=False):
+                test_estrazione_categorie(df)
+            
             categoria_col = "CATEGORIA_ESTESA" if "CATEGORIA_ESTESA" in df.columns else None
             
             # Sezione categorie disponibili (richiudibile)
@@ -586,12 +649,6 @@ if df is not None and not df.empty:
                 st.metric("Pagina", f"{current_page}/{total_pages}")
 
             # Raggruppamento per categoria
-            def get_categoria_from_tariffa(tariffa):
-                if pd.isna(tariffa):
-                    return None
-                match = re.search(r'/([0-9]+)\\.', str(tariffa))
-                return match.group(1) if match else None
-
             categorie_map = {
                 '01': '01 - Edilizia',
                 '02': '02 - Restauro e opere di recupero',
@@ -617,7 +674,7 @@ if df is not None and not df.empty:
                 for _, row in df_batch.iterrows():
                     categoria_num = get_categoria_from_tariffa(row['TARIFFA'])
                     if categoria_num:
-                        categoria_nome = categorie_map.get(categoria_num, f"Categoria {categoria_num}")
+                        categoria_nome = CATEGORIE_MAP.get(categoria_num, f"Categoria {categoria_num}")
                     else:
                         categoria_nome = "Senza Categoria"
                     if categoria_nome not in groups:
@@ -838,6 +895,13 @@ if df is not None and not df.empty:
                     df_export = pd.DataFrame(st.session_state['selected_rows'])
                     csv_data = df_export.to_csv(index=False)
                     
+                    st.download_button(
+                        label="📊 Scarica CSV",
+                        data=csv_data,
+                        file_name=f"mio_elenco_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
                     st.download_button(
                         label="📊 Scarica CSV",
                         data=csv_data,
