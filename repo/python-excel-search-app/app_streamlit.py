@@ -119,6 +119,8 @@ if not st.session_state['file_loaded']:
     # Permetti comunque di caricare un nuovo file se richiesto
     uploaded_file = st.file_uploader("📂 Scegli un nuovo file Excel da aggiungere", type=["xlsx"])
     if uploaded_file:
+        # Crea la cartella 'data' se non esiste
+        os.makedirs("data", exist_ok=True)
         # Salva il nuovo file nella cartella data/ con nome originale
         save_path = os.path.join("data", uploaded_file.name)
         with open(save_path, "wb") as f:
