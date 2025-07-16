@@ -481,6 +481,44 @@ if df is not None and not df.empty:
         else:
             df = st.session_state['df_data']
             categoria_col = "CATEGORIA_ESTESA" if "CATEGORIA_ESTESA" in df.columns else None
+            
+            # Sezione categorie disponibili (richiudibile)
+            with st.expander("📋 Categorie Disponibili", expanded=False):
+                st.markdown("#### 🏷️ Panoramica delle Categorie")
+                if categoria_col:
+                    all_categories = sorted(list(df[categoria_col].dropna().unique()))
+                    
+                    # Crea una tabella riassuntiva delle categorie
+                    category_overview = []
+                    for cat in all_categories:
+                        df_cat = df[df[categoria_col] == cat]
+                        count = len(df_cat)
+                        # Calcola prezzo medio se possibile
+                        try:
+                            prezzi_validi = pd.to_numeric(df_cat['Prezzo'], errors='coerce').dropna()
+                            prezzo_medio = prezzi_validi.mean() if len(prezzi_validi) > 0 else 0
+                            valore_totale = prezzi_validi.sum() if len(prezzi_validi) > 0 else 0
+                        except:
+                            prezzo_medio = 0
+                            valore_totale = 0
+                        
+                        category_overview.append({
+                            "Categoria": cat,
+                            "N° Voci": count,
+                            "Prezzo Medio": f"€ {prezzo_medio:.2f}",
+                            "Valore Totale": f"€ {valore_totale:,.2f}"
+                        })
+                    
+                    if category_overview:
+                        overview_df = pd.DataFrame(category_overview)
+                        st.dataframe(
+                            overview_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                else:
+                    st.info("Nessuna categoria rilevata nel dataset.")
+            
             # Filtri di ricerca
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -591,7 +629,12 @@ if df is not None and not df.empty:
 
             # Visualizzazione risultati
             if total_found > 0:
-                st.markdown("### 🌳 Risultati della ricerca organizzati per categoria")
+                # Titolo dinamico basato sulla categoria selezionata
+                if categoria_sel == "Tutte le categorie":
+                    st.markdown("### 🌳 Risultati della ricerca organizzati per categoria")
+                else:
+                    st.markdown(f"### 🌳 Risultati per: **{categoria_sel}**")
+                    
                 for categoria_nome, rows in category_groups.items():
                     with st.expander(f"{categoria_nome} ({len(rows)})", expanded=True):
                         df_cat = pd.DataFrame(rows)
@@ -669,647 +712,138 @@ if df is not None and not df.empty:
 
     with tab_elenco:
         st.markdown("### 📚 Il Mio Elenco Personalizzato")
-        # Tutta la logica di gestione e visualizzazione delle voci selezionate
-        # ...existing code...
-        # FILTRI CON COMPONENTI NATIVI STREAMLIT
-        col_categoria, col_filtri = st.columns([1, 3])
-
-        # Definisci la colonna categoria
-        categoria_col = "CATEGORIA_ESTESA" if "CATEGORIA_ESTESA" in df.columns else None
         
-        with col_categoria:
-            st.markdown("#### 🏷️ Filtro Categoria")
-            if categoria_col:
-                # Ottieni tutte le categorie disponibili
-                all_categories = sorted(list(df[categoria_col].unique()))
-                categoria_sel = st.selectbox(
-                    "Seleziona categoria", 
-                    ["Tutte le categorie"] + all_categories, 
-                    key="categoria_filter",
-                    help="Filtra per categoria specifica"
-                )
-                
-                # Bottone reset categoria solo se diverso da "Tutte le categorie"
-                if categoria_sel != "Tutte le categorie":
-                    if st.button("🔄 Reset categoria", help="Torna a tutte le categorie", use_container_width=True):
-                        # Cancella la chiave per far resettare il widget
-                        if 'categoria_filter' in st.session_state:
-                            del st.session_state['categoria_filter']
-                        st.session_state['batch_start'] = 0
-                        st.rerun()
-            else:
-                categoria_sel = "Tutte le categorie"
-                st.info("Nessuna categoria disponibile")
+        # Mostra statistiche del mio elenco
+        selected_count = len(st.session_state.get('selected_rows', []))
         
-        with col_filtri:
-            st.markdown("#### 🔍 Filtri di Ricerca")
-            
-            # Campi di ricerca con clear integrato
-            col1, col2, col3, col4 = st.columns(4)
-            if 'search_tariffa_input' not in st.session_state:
-                st.session_state['search_tariffa_input'] = ""
-            if 'search_desc_input' not in st.session_state:
-                st.session_state['search_desc_input'] = ""
-            if 'search_unita_input' not in st.session_state:
-                st.session_state['search_unita_input'] = ""
-            if 'search_prezzo_input' not in st.session_state:
-                st.session_state['search_prezzo_input'] = ""
-
-            with col1:
-                search_tariffa = st.text_input(
-                    "🏷️ Tariffa",
-                    value=st.session_state['search_tariffa_input'],
-                    help="Filtra per codice tariffa",
-                    key="search_tariffa_input",
-                    placeholder="Inserisci codice tariffa...",
-                    on_change=lambda: st.session_state.update({'search_tariffa': st.session_state['search_tariffa_input'], 'batch_start': 0})
-                )
-            with col2:
-                search_desc = st.text_input(
-                    "📝 Descrizione",
-                    value=st.session_state['search_desc_input'],
-                    help="Filtra per descrizione",
-                    key="search_desc_input",
-                    placeholder="Inserisci descrizione...",
-                    on_change=lambda: st.session_state.update({'search_desc': st.session_state['search_desc_input'], 'batch_start': 0})
-                )
-            with col3:
-                search_unita = st.text_input(
-                    "📏 Unità",
-                    value=st.session_state['search_unita_input'],
-                    help="Filtra per unità di misura",
-                    key="search_unita_input",
-                    placeholder="Inserisci unità...",
-                    on_change=lambda: st.session_state.update({'search_unita': st.session_state['search_unita_input'], 'batch_start': 0})
-                )
-            with col4:
-                search_prezzo = st.text_input(
-                    "💰 Prezzo",
-                    value=st.session_state['search_prezzo_input'],
-                    help="Filtra per prezzo",
-                    key="search_prezzo_input",
-                    placeholder="Inserisci prezzo...",
-                    on_change=lambda: st.session_state.update({'search_prezzo': st.session_state['search_prezzo_input'], 'batch_start': 0})
-                )
-            
-            # Bottone cancella tutti i filtri se ce ne sono di attivi
-            active_search_filters = any([search_tariffa, search_desc, search_unita, search_prezzo])
-            if active_search_filters:
-                col_clear = st.columns([3, 1])
-                with col_clear[1]:
-                    if st.button("🗑️ Cancella filtri", help="Cancella tutti i campi di ricerca", use_container_width=True):
-                        # Reset di tutti i campi di ricerca usando cancellazione delle chiavi
-                        for key in ['search_tariffa', 'search_desc', 'search_unita', 'search_prezzo']:
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        for key in ['search_tariffa_input', 'search_desc_input', 'search_unita_input', 'search_prezzo_input']:
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        st.session_state['batch_start'] = 0
-                        st.rerun()
-
-        # Ricerca batch ottimizzata - restituisce risultati raggruppati per categoria
-        def batch_search(df, search_tariffa, search_desc, search_unita, search_prezzo, batch_size=50, batch_start=0):
-            mask = np.ones(len(df), dtype=bool)
-            if search_tariffa:
-                mask &= df['TARIFFA'].astype(str).str.contains(search_tariffa, case=False, na=False).values
-            if search_desc:
-                mask &= df["DESCRIZIONE dell'ARTICOLO"].astype(str).str.contains(search_desc, case=False, na=False).values
-            if search_unita:
-                mask &= df['Unità di misura'].astype(str).str.contains(search_unita, case=False, na=False).values
-            if search_prezzo:
-                mask &= df['Prezzo'].astype(str).str.contains(search_prezzo, case=False, na=False).values
-            
-            df_filtered = df[mask]
-            
-            # Applica paginazione
-            total = len(df_filtered)
-            start = batch_start
-            end = min(start + batch_size, total)
-            df_batch = df_filtered.iloc[start:end]
-            
-            return df_batch, total
-
-        def get_categoria_from_tariffa(tariffa):
-            """Estrae il numero categoria dal codice tariffa"""
-            if pd.isna(tariffa):
-                return None
-            match = re.search(r'/(\d+)\.', str(tariffa))
-            return match.group(1) if match else None
-
-        def group_results_by_category(df_batch):
-            """Raggruppa i risultati per categoria"""
-            # Mappatura categorie
-            categorie_map = {
-                '01': '01 - Edilizia',
-                '02': '02 - Restauro e opere di recupero', 
-                '03': '03 - Infrastrutture',
-                '04': '04 - Impianti elettrici',
-                '05': '05 - Impianti di adduzione idrica e di scarico',
-                '06': '06 - Impianti antincendio',
-                '07': '07 - Impianti termici',
-                '08': '08 - Fognature ed acquedotti',
-                '09': '09 - Sicurezza in azienda e in cantiere',
-                '10': '10 - Opere marittime',
-                '11': '11 - Impianti sportivi',
-                '12': '12 - Igiene ambientale',
-                '13': '13 - Opere idrauliche e di bonifica e consolidamento',
-                '14': '14 - Opere forestali',
-                '15': '15 - Sondaggi e prove',
-                '16': '16 - Opere a verde e irrigazione',
-                '17': '17 - Arredo urbano e parco giochi'
-            }
-            
-            groups = {}
-            
-            for _, row in df_batch.iterrows():
-                categoria_num = get_categoria_from_tariffa(row['TARIFFA'])
-                if categoria_num:
-                    categoria_nome = categorie_map.get(categoria_num, f"Categoria {categoria_num}")
-                else:
-                    categoria_nome = "Senza Categoria"
-                
-                if categoria_nome not in groups:
-                    groups[categoria_nome] = []
-                groups[categoria_nome].append(row)
-            
-            return groups
-
-        def get_category_full_stats(df_filtered, category_groups):
-            """Calcola le statistiche complete per ogni categoria (non solo il batch corrente)"""
-            # Mappatura categorie
-            categorie_map = {
-                '01': '01 - Edilizia',
-                '02': '02 - Restauro e opere di recupero', 
-                '03': '03 - Infrastrutture',
-                '04': '04 - Impianti elettrici',
-                '05': '05 - Impianti di adduzione idrica e di scarico',
-                '06': '06 - Impianti antincendio',
-                '07': '07 - Impianti termici',
-                '08': '08 - Fognature ed acquedotti',
-                '09': '09 - Sicurezza in azienda e in cantiere',
-                '10': '10 - Opere marittime',
-                '11': '11 - Impianti sportivi',
-                '12': '12 - Igiene ambientale',
-                '13': '13 - Opere idrauliche e di bonifica e consolidamento',
-                '14': '14 - Opere forestali',
-                '15': '15 - Sondaggi e prove',
-                '16': '16 - Opere a verde e irrigazione',
-                '17': '17 - Arredo urbano e parco giochi'
-            }
-            
-            # Raggruppa TUTTO il dataset filtrato per categoria (non solo il batch)
-            full_category_stats = {}
-            
-            for _, row in df_filtered.iterrows():
-                categoria_num = get_categoria_from_tariffa(row['TARIFFA'])
-                if categoria_num:
-                    categoria_nome = categorie_map.get(categoria_num, f"Categoria {categoria_num}")
-                else:
-                    categoria_nome = "Senza Categoria"
-                
-                if categoria_nome not in full_category_stats:
-                    full_category_stats[categoria_nome] = []
-                full_category_stats[categoria_nome].append(row)
-            
-            return full_category_stats
-
-        # Gestione batch
-        if 'batch_start' not in st.session_state:
-            st.session_state['batch_start'] = 0
-        batch_size = 50
-        if categoria_sel == "Tutte le categorie" or not categoria_col:
-            df_categoria = df
+        if selected_count == 0:
+            st.info("📝 Il tuo elenco è vuoto. Usa il tab **Ricerca Dati** per aggiungere voci.")
         else:
-            df_categoria = df[df[categoria_col] == categoria_sel]
-        df_batch, total_found = batch_search(df_categoria, search_tariffa, search_desc, search_unita, search_prezzo, batch_size, st.session_state['batch_start'])
-
-        # STATISTICHE FILTRI
-        col_stats1, col_stats2, col_stats3 = st.columns(3)
-        with col_stats1:
-            st.metric("Voci in categoria", f"{len(df_categoria):,}")
-        with col_stats2:
-            st.metric("Voci filtrate", f"{total_found:,}")
-        with col_stats3:
-            current_page = (st.session_state['batch_start'] // batch_size) + 1
-            total_pages = max(1, (total_found - 1) // batch_size + 1)
-            st.metric("Pagina", f"{current_page}/{total_pages}")
-
-        def show_category_details(categoria_nome, rows, batch_start):
-            """Mostra i dettagli di una categoria con tabella interattiva"""
-            # Configura colonne per le tabelle
-            column_config = {
-                "Aggiungi": st.column_config.CheckboxColumn(
-                    "➕ Aggiungi",
-                    help="Seleziona per aggiungere al tuo elenco",
-                    default=False,
-                ),
-                "TARIFFA": st.column_config.TextColumn("🏷️ Tariffa", width="medium"),
-                "DESCRIZIONE dell'ARTICOLO": st.column_config.TextColumn("📝 Descrizione", width="large"),
-                "Unità di misura": st.column_config.TextColumn("📏 Unità", width="small"),
-                "Prezzo": st.column_config.NumberColumn("💰 Prezzo", format="%.2f €", width="small"),
-            }
+            # Statistiche dell'elenco
+            col_stats1, col_stats2, col_stats3 = st.columns(3)
+            with col_stats1:
+                st.metric("📊 Voci nel mio elenco", selected_count)
             
-            with st.container():
-                st.markdown(f"##### 📋 {categoria_nome}")
+            # Calcola valore totale se possibile
+            total_value = 0
+            valid_prices = 0
+            for row in st.session_state['selected_rows']:
+                try:
+                    prezzo = pd.to_numeric(row.get('Prezzo', 0), errors='coerce')
+                    if not pd.isna(prezzo):
+                        total_value += float(prezzo)
+                        valid_prices += 1
+                except:
+                    pass
+            
+            with col_stats2:
+                st.metric("💰 Valore Totale", f"€ {total_value:,.2f}")
+            
+            with col_stats3:
+                avg_price = total_value / valid_prices if valid_prices > 0 else 0
+                st.metric("📈 Prezzo Medio", f"€ {avg_price:.2f}")
+            
+            # Mostra voci filtrate 
+            st.markdown(f"#### � Le Mie Voci ({selected_count})")
+            
+            # Raggruppa per categoria personalizzata
+            groups = {}
+            for row in st.session_state['selected_rows']:
+                cat = row.get('_CUSTOM_CATEGORY', 'Senza categoria')
+                if cat not in groups:
+                    groups[cat] = []
+                groups[cat].append(row)
+            
+            # Mostra ogni gruppo
+            for categoria, rows in groups.items():
+                icon = "📂" if categoria != "Senza categoria" else "📄"
                 
-                # Converti in DataFrame
-                df_cat = pd.DataFrame(rows)
-                df_cat.insert(0, "Aggiungi", False)
-                
-                # Rimuovi colonne interne se presenti
-                columns_to_show = [col for col in df_cat.columns if not col.startswith('_')]
-                df_cat_clean = df_cat[columns_to_show].copy()
-                
-                # Tabella interattiva per questa categoria
-                edited_df = st.data_editor(
-                    df_cat_clean,
-                    column_config=column_config,
-                    disabled=["TARIFFA", "DESCRIZIONE dell'ARTICOLO", "Unità di misura", "Prezzo"] + ([categoria_col] if categoria_col else []),
-                    hide_index=True,
-                    use_container_width=True,
-                    height=min(300, 50 * len(df_cat_clean) + 50),
-                    key=f"compact_detail_{categoria_nome}_{batch_start}"
-                )
-                
-                # Gestione selezioni per questa categoria
-                selected_indices = edited_df[edited_df["Aggiungi"] == True].index
-                if len(selected_indices) > 0:
-                    col_add, col_info = st.columns([2, 1])
-                    with col_add:
-                        if st.button(
-                            f"➕ Aggiungi {len(selected_indices)} voci selezionate", 
-                            key=f"add_compact_{categoria_nome}_{batch_start}", 
-                            type="primary",
-                            use_container_width=True
-                        ):
-                            if 'selected_rows' not in st.session_state:
-                                st.session_state['selected_rows'] = []
-                            
-                            added_count = 0
-                            skipped_count = 0
-                            existing_items = set()
-                            
-                            # Costruisci set di voci già presenti
-                            for existing_row in st.session_state['selected_rows']:
-                                if 'TARIFFA' in existing_row:
-                                    existing_items.add(existing_row['TARIFFA'])
-                            
-                            # Aggiungi le voci selezionate
-                            for display_idx in selected_indices:
-                                if display_idx < len(df_cat):
-                                    row_data = df_cat.iloc[display_idx].to_dict()
-                                    row_data.pop('Aggiungi', None)
-                                    
-                                    tariffa_id = row_data.get('TARIFFA', '')
-                                    if tariffa_id not in existing_items:
-                                        # Assegna categoria personalizzata se selezionata
-                                        if st.session_state.get('selected_custom_category'):
-                                            row_data['_CUSTOM_CATEGORY'] = st.session_state['selected_custom_category']
-                                        else:
-                                            row_data['_CUSTOM_CATEGORY'] = None
-                                        
-                                        st.session_state['selected_rows'].append(row_data)
-                                        existing_items.add(tariffa_id)
-                                        added_count += 1
-                                    else:
-                                        skipped_count += 1
-                            
-                            # Autosalva e mostra risultato
-                            if added_count > 0:
-                                auto_save_work_state()
-                                st.success(f"✅ Aggiunte {added_count} nuove voci al tuo elenco!")
-                            
-                            if skipped_count > 0:
-                                st.info(f"⏭️ Saltate {skipped_count} voci già presenti nel tuo elenco.")
-                            
-                            if added_count == 0 and skipped_count > 0:
-                                st.warning("⚠️ Tutte le voci selezionate erano già nel tuo elenco.")
-                            
-                            st.rerun()
+                with st.expander(f"{icon} **{categoria}** ({len(rows)} voci)", expanded=True):
+                    # Crea DataFrame per questo gruppo
+                    df_group = pd.DataFrame(rows)
                     
-                    with col_info:
-                        st.info(f"🎯 {len(selected_indices)} voci selezionate")
-                
-                st.markdown("---")
-
-        # VISUALIZZAZIONE RISULTATI COME TREE CON NODI APRIBILI/CHIUDIBILI
-        if total_found > 0:
-            st.markdown("### 🌳 Risultati della ricerca organizzati per categoria")
-            
-            # Prima calcola le statistiche complete sul dataset filtrato
-            mask = np.ones(len(df_categoria), dtype=bool)
-            if search_tariffa:
-                mask &= df_categoria['TARIFFA'].astype(str).str.contains(search_tariffa, case=False, na=False).values
-            if search_desc:
-                mask &= df_categoria["DESCRIZIONE dell'ARTICOLO"].astype(str).str.contains(search_desc, case=False, na=False).values
-            if search_unita:
-                mask &= df_categoria['Unità di misura'].astype(str).str.contains(search_unita, case=False, na=False).values
-            if search_prezzo:
-                mask &= df_categoria['Prezzo'].astype(str).str.contains(search_prezzo, case=False, na=False).values
-            
-            df_filtered_complete = df_categoria[mask]
-            
-            # Ottieni le statistiche complete per tutte le categorie
-            full_category_stats = get_category_full_stats(df_filtered_complete, {})
-            
-            # Raggruppa risultati per categoria (solo per il batch corrente)
-            category_groups = group_results_by_category(df_batch)
-            
-            # Salva i dati per la sidebar
-            st.session_state['search_results_available'] = True
-            st.session_state['full_category_stats'] = full_category_stats
-            
-            # Determina la modalità vista dalla sidebar
-            view_mode = st.session_state.get('tree_view_mode', '📊 Compatta')
-
-            # VISTA COMPATTA - Mostra tutti i nodi chiusi
-            if view_mode == '📊 Compatta':
-                st.markdown("### 📋 Categorie Disponibili")
-                
-                # Tabella riassuntiva delle categorie
-                category_summary = []
-                # Usa le statistiche complete per mostrare TUTTE le categorie presenti nel dataset filtrato
-                for categoria_nome, full_rows in full_category_stats.items():
-                    # Icona per la categoria
-                    icon = "📂"
-                    if "Edilizia" in categoria_nome:
-                        icon = "🏗️"
-                    elif "Impianti" in categoria_nome:
-                        icon = "⚡"
-                    elif "Infrastrutture" in categoria_nome:
-                        icon = "🛣️"
-                    elif "Restauro" in categoria_nome:
-                        icon = "🏛️"
-                    elif "Sicurezza" in categoria_nome:
-                        icon = "🦺"
-                    elif "Opere" in categoria_nome:
-                        icon = "🌊"
-                    elif "Verde" in categoria_nome:
-                        icon = "🌿"
+                    # Aggiungi colonna per rimozione
+                    df_group.insert(0, "Rimuovi", False)
                     
-                    # Usa le statistiche complete per questa categoria (TUTTE le voci della categoria)
-                    total_voci_categoria = len(full_rows)
+                    # Rimuovi colonne interne
+                    columns_to_show = [col for col in df_group.columns if not col.startswith('_')]
+                    df_group_clean = df_group[columns_to_show].copy()
                     
-                    # Calcola statistiche per categoria usando TUTTE le voci della categoria
-                    prezzi = []
-                    for row in full_rows:
-                        if pd.notna(row['Prezzo']):
-                            try:
-                                prezzo = pd.to_numeric(row['Prezzo'], errors='coerce')
-                                if not pd.isna(prezzo):
-                                    prezzi.append(float(prezzo))
-                            except:
-                                pass
-                    
-                    valore_totale = sum(prezzi) if prezzi else 0
-                    prezzo_medio = valore_totale / len(prezzi) if prezzi else 0
-                    
-                    category_summary.append({
-                        "Categoria": f"{icon} {categoria_nome}",
-                        "Voci": total_voci_categoria,  # Totale reale di tutte le voci
-                        "Valore Totale": f"€ {valore_totale:,.2f}",
-                        "Prezzo Medio": f"€ {prezzo_medio:,.2f}",
-                        "Apri": False
-                    })
-                
-                # Mostra tabella riassuntiva
-                if category_summary:
-                    summary_df = pd.DataFrame(category_summary)
-                    
-                    edited_summary = st.data_editor(
-                        summary_df,
+                    # Editor per questo gruppo
+                    edited_group = st.data_editor(
+                        df_group_clean,
                         column_config={
-                            "Categoria": st.column_config.TextColumn("🏷️ Categoria", width="large"),
-                            "Voci": st.column_config.NumberColumn("📊 N° Voci", width="small"),
-                            "Valore Totale": st.column_config.TextColumn("💰 Valore Tot.", width="medium"),
-                            "Prezzo Medio": st.column_config.TextColumn("📈 Prezzo Medio", width="medium"),
-                            "Apri": st.column_config.CheckboxColumn("👁️ Apri", help="Seleziona per aprire i dettagli", width="small")
+                            "Rimuovi": st.column_config.CheckboxColumn(
+                                "🗑️ Rimuovi",
+                                help="Seleziona per rimuovere dal tuo elenco",
+                                default=False
+                            ),
+                            "TARIFFA": st.column_config.TextColumn("🏷️ Tariffa", width="medium"),
+                            "DESCRIZIONE dell'ARTICOLO": st.column_config.TextColumn("📝 Descrizione", width="large"),
+                            "Unità di misura": st.column_config.TextColumn("📏 Unità", width="small"),
+                            "Prezzo": st.column_config.NumberColumn("💰 Prezzo", format="%.2f €", width="small"),
                         },
-                        disabled=["Categoria", "Voci", "Valore Totale", "Prezzo Medio"],
+                        disabled=["TARIFFA", "DESCRIZIONE dell'ARTICOLO", "Unità di misura", "Prezzo", "CATEGORIA_ESTESA"],
                         hide_index=True,
                         use_container_width=True,
-                        height=min(400, 50 * len(category_summary) + 50),
-                        key="compact_view_table"
+                        height=min(400, 50 * len(df_group_clean) + 50),
+                        key=f"my_list_editor_{categoria}"
                     )
                     
-                    # Mostra dettagli delle categorie selezionate
-                    selected_categories = edited_summary[edited_summary["Apri"] == True]["Categoria"].tolist()
-                    
-                    if selected_categories:
-                        st.markdown("#### 🔍 Dettagli categorie selezionate")
+                    # Gestisci rimozioni
+                    to_remove_indices = edited_group[edited_group["Rimuovi"] == True].index
+                    if len(to_remove_indices) > 0:
+                        col_remove, col_info = st.columns([2, 1])
+                        with col_remove:
+                            if st.button(
+                                f"🗑️ Rimuovi {len(to_remove_indices)} voci selezionate",
+                                key=f"remove_{categoria}",
+                                type="secondary",
+                                use_container_width=True
+                            ):
+                                # Rimuovi le voci selezionate
+                                tariffe_to_remove = set()
+                                for idx in to_remove_indices:
+                                    if idx < len(df_group):
+                                        tariffa = df_group.iloc[idx]['TARIFFA']
+                                        tariffe_to_remove.add(tariffa)
+                                
+                                # Aggiorna la lista principale
+                                st.session_state['selected_rows'] = [
+                                    row for row in st.session_state['selected_rows']
+                                    if row.get('TARIFFA') not in tariffe_to_remove
+                                ]
+                                
+                                auto_save_work_state()
+                                st.success(f"✅ Rimosse {len(to_remove_indices)} voci!")
+                                st.rerun()
                         
-                        # Per ogni categoria selezionata, crea un expander individuale
-                        for cat_display in selected_categories:
-                            # Trova il nome categoria originale (rimuovi icona dal nome)
-                            cat_name = None
-                            for nome in full_category_stats.keys():
-                                if nome in cat_display:
-                                    cat_name = nome
-                                    break
-                            
-                            if cat_name and cat_name in full_category_stats:
-                                # Prendi le voci per questa categoria dal batch corrente (se presenti)
-                                rows = category_groups.get(cat_name, [])
-                                
-                                # Usa le statistiche complete per mostrare il totale reale
-                                full_rows = full_category_stats.get(cat_name, [])
-                                total_voci_reali = len(full_rows)
-                                
-                                # Icona per la categoria
-                                icon = "📂"
-                                if "Edilizia" in cat_name:
-                                    icon = "🏗️"
-                                elif "Impianti" in cat_name:
-                                    icon = "⚡"
-                                elif "Infrastrutture" in cat_name:
-                                    icon = "🛣️"
-                                elif "Restauro" in cat_name:
-                                    icon = "🏛️"
-                                elif "Sicurezza" in cat_name:
-                                    icon = "🦺"
-                                elif "Opere" in cat_name:
-                                    icon = "🌊"
-                                elif "Verde" in cat_name:
-                                    icon = "🌿"
-                                
-                                # Expander per questa categoria con informazioni complete
-                                with st.expander(
-                                    f"{icon} **{cat_name}** ({total_voci_reali} voci totali - {len(rows)} in questa pagina)", 
-                                    expanded=len(selected_categories) == 1  # Espandi solo se è l'unica selezionata
-                                ):
-                                    if len(rows) > 0:
-                                        show_category_details(cat_name, rows, st.session_state['batch_start'])
-                                    else:
-                                        st.info(f"Nessuna voce di '{cat_name}' in questa pagina. Naviga tra le pagine per trovare le voci di questa categoria.")
-                                        
-                                        # Mostra informazioni sulle voci totali della categoria
-                                        if total_voci_reali > 0:
-                                            st.info(f"📊 Questa categoria contiene {total_voci_reali} voci totali che soddisfano i filtri di ricerca.")
+                        with col_info:
+                            st.info(f"🎯 {len(to_remove_indices)} voci selezionate")
             
-            # VISTA ESPANSA - Expander tradizionali (come prima)
-            else:
-                # Configura colonne per le tabelle
-                column_config = {
-                    "Aggiungi": st.column_config.CheckboxColumn(
-                        "➕ Aggiungi",
-                        help="Seleziona per aggiungere al tuo elenco",
-                        default=False,
-                    ),
-                    "TARIFFA": st.column_config.TextColumn(
-                        "🏷️ Tariffa",
-                        width="medium",
-                    ),
-                    "DESCRIZIONE dell'ARTICOLO": st.column_config.TextColumn(
-                        "📝 Descrizione",
-                        width="large",
-                    ),
-                    "Unità di misura": st.column_config.TextColumn(
-                        "📏 Unità",
-                        width="small",
-                    ),
-                    "Prezzo": st.column_config.NumberColumn(
-                        "💰 Prezzo",
-                        format="%.2f €",
-                        width="small",
-                    ),
-                }
-
-                # Crea un expander per ogni categoria (nodo del tree)
-                for categoria_nome, rows in category_groups.items():
-                    # Determina se aprire di default (prima categoria aperta, altre chiuse)
-                    is_first_category = list(category_groups.keys())[0] == categoria_nome
+            # Opzioni di esportazione
+            st.markdown("#### 📤 Esportazione")
+            col_exp1, col_exp2 = st.columns(2)
+            
+            with col_exp1:
+                if st.button("🗑️ Svuota Elenco", help="Rimuovi tutte le voci dal tuo elenco"):
+                    st.session_state['selected_rows'] = []
+                    auto_save_work_state()
+                    st.success("✅ Elenco svuotato!")
+                    st.rerun()
+            
+            with col_exp2:
+                if st.session_state['selected_rows']:
+                    # Prepara CSV
+                    df_export = pd.DataFrame(st.session_state['selected_rows'])
+                    csv_data = df_export.to_csv(index=False)
                     
-                    # Icona per la categoria
-                    icon = "📂"
-                    if "Edilizia" in categoria_nome:
-                        icon = "🏗️"
-                    elif "Impianti" in categoria_nome:
-                        icon = "⚡"
-                    elif "Infrastrutture" in categoria_nome:
-                        icon = "🛣️"
-                    elif "Restauro" in categoria_nome:
-                        icon = "🏛️"
-                    elif "Sicurezza" in categoria_nome:
-                        icon = "🦺"
-                    elif "Opere" in categoria_nome:
-                        icon = "🌊"
-                    elif "Verde" in categoria_nome:
-                        icon = "🌿"
-                    
-                    # Nodo del tree (expander)
-                    with st.expander(f"{icon} **{categoria_nome}** ({len(rows)} voci)", expanded=is_first_category):
-                        if not rows:
-                            st.info("Nessuna voce in questa categoria per i filtri attuali.")
-                            continue
-                        
-                        # Converti in DataFrame
-                        df_cat = pd.DataFrame(rows)
-                        df_cat.insert(0, "Aggiungi", False)
-                        
-                        # Rimuovi colonne interne se presenti
-                        columns_to_show = [col for col in df_cat.columns if not col.startswith('_')]
-                        df_cat_clean = df_cat[columns_to_show].copy()
-                        
-                        # Tabella interattiva per questa categoria
-                        edited_df = st.data_editor(
-                            df_cat_clean,
-                            column_config=column_config,
-                            disabled=["TARIFFA", "DESCRIZIONE dell'ARTICOLO", "Unità di misura", "Prezzo"] + ([categoria_col] if categoria_col else []),
-                            hide_index=True,
-                            use_container_width=True,
-                            height=min(400, 50 * len(df_cat_clean) + 50),
-                            key=f"tree_editor_{categoria_nome}_{st.session_state['batch_start']}"
-                        )
-                        
-                        # Gestione selezioni per questa categoria
-                        selected_indices = edited_df[edited_df["Aggiungi"] == True].index
-                        if len(selected_indices) > 0:
-                            col_add, col_info = st.columns([2, 1])
-                            with col_add:
-                                if st.button(
-                                    f"➕ Aggiungi {len(selected_indices)} voci selezionate", 
-                                    key=f"add_tree_{categoria_nome}_{st.session_state['batch_start']}", 
-                                    type="primary",
-                                    use_container_width=True
-                                ):
-                                    if 'selected_rows' not in st.session_state:
-                                        st.session_state['selected_rows'] = []
-                                    
-                                    added_count = 0
-                                    skipped_count = 0
-                                    existing_items = set()
-                                    
-                                    # Costruisci set di voci già presenti
-                                    for existing_row in st.session_state['selected_rows']:
-                                        if 'TARIFFA' in existing_row:
-                                            existing_items.add(existing_row['TARIFFA'])
-                                    
-                                    # Aggiungi le voci selezionate
-                                    for display_idx in selected_indices:
-                                        if display_idx < len(df_cat):
-                                            row_data = df_cat.iloc[display_idx].to_dict()
-                                            row_data.pop('Aggiungi', None)
-                                            
-                                            tariffa_id = row_data.get('TARIFFA', '')
-                                            if tariffa_id not in existing_items:
-                                                # Assegna categoria personalizzata se selezionata
-                                                if st.session_state.get('selected_custom_category'):
-                                                    row_data['_CUSTOM_CATEGORY'] = st.session_state['selected_custom_category']
-                                                else:
-                                                    row_data['_CUSTOM_CATEGORY'] = None
-                                                
-                                                st.session_state['selected_rows'].append(row_data)
-                                                existing_items.add(tariffa_id)
-                                                added_count += 1
-                                            else:
-                                                skipped_count += 1
-                                    
-                                    # Autosalva e mostra risultato
-                                    if added_count > 0:
-                                        auto_save_work_state()
-                                        st.success(f"✅ Aggiunte {added_count} nuove voci al tuo elenco!")
-                                    
-                                    if skipped_count > 0:
-                                        st.info(f"⏭️ Saltate {skipped_count} voci già presenti nel tuo elenco.")
-                                    
-                                    if added_count == 0 and skipped_count > 0:
-                                        st.warning("⚠️ Tutte le voci selezionate erano già nel tuo elenco.")
-                                    
-                                    st.rerun()
-                            
-                            with col_info:
-                                st.info(f"🎯 {len(selected_indices)} voci selezionate")
-                        
-                        st.markdown("---")
-
-            # Navigazione batch migliorata
-            col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
-            with col_nav1:
-                if st.session_state['batch_start'] > 0:
-                    if st.button("⬅️ Precedenti", help="Vai alla pagina precedente", use_container_width=True):
-                        st.session_state['batch_start'] = max(0, st.session_state['batch_start'] - batch_size)
-                        st.rerun()
-            with col_nav2:
-                if total_pages > 1:
-                    page_number = st.number_input(
-                        f"Vai alla pagina (1-{total_pages})", 
-                        min_value=1, 
-                        max_value=total_pages, 
-                        value=current_page,
-                        key="page_input"
+                    st.download_button(
+                        label="📊 Scarica CSV",
+                        data=csv_data,
+                        file_name=f"mio_elenco_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
                     )
-                    if page_number != current_page:
-                        st.session_state['batch_start'] = (page_number - 1) * batch_size
-                        st.rerun()
-            with col_nav3:
-                if st.session_state['batch_start'] + batch_size < total_found:
-                    if st.button("➡️ Successivi", help="Vai alla pagina successiva", use_container_width=True):
-                        st.session_state['batch_start'] += batch_size
-                        st.rerun()
-        else:
-            st.warning("⚠️ Nessun risultato trovato per i criteri di ricerca specificati.")
-    
-    # ...existing code for tab_elenco...
         
 
