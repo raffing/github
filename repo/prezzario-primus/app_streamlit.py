@@ -9,6 +9,15 @@ import os
 import re
 from src.esamina_excel import esamina_excel, raggruppa_per_lettera_tariffa, crea_struttura_gerarchica
 
+# Import del nuovo sistema di categorie gerarchiche
+from src.utils.category_ui import (
+    render_category_management_page,
+    render_category_input,
+    display_current_categories,
+    get_categories_for_dataframe_mapping,
+    get_category_hierarchy_dict
+)
+
 # COSTANTI GLOBALI
 CATEGORIE_MAP = {
     '01': '01 - Edilizia',
@@ -356,8 +365,8 @@ if st.session_state.get('file_loaded', False):
     df = st.session_state.get('df_data', None)
     
 if df is not None and not df.empty:
-    # TABS PRINCIPALI: Impostazioni, Ricerca Dati, Il Mio Elenco
-    tab_impostazioni, tab_ricerca, tab_elenco = st.tabs(["⚙️ Impostazioni", "🔍 Ricerca Dati", "📚 Il Mio Elenco"])
+    # TABS PRINCIPALI: Impostazioni, Categorie, Ricerca Dati, Il Mio Elenco
+    tab_impostazioni, tab_categorie, tab_ricerca, tab_elenco = st.tabs(["⚙️ Impostazioni", "📋 Categorie", "🔍 Ricerca Dati", "📚 Il Mio Elenco"])
 
     with tab_impostazioni:
         st.markdown("### ⚙️ Impostazioni e Gestione Categorie")
@@ -531,6 +540,60 @@ if df is not None and not df.empty:
                 </script>
                 """, height=0)
                 st.success("✅ Cache del browser pulita!")
+
+    with tab_categorie:
+        st.markdown("### 📋 Sistema di Categorie Gerarchiche")
+        
+        # Integrazione del nuovo sistema di categorie
+        render_category_management_page()
+        
+        # Sezione per collegare le categorie ai dati esistenti
+        if 'categories' in st.session_state and st.session_state.categories:
+            st.divider()
+            st.subheader("🔗 Collegamento con Dati Esistenti")
+            
+            # Mostra statistiche delle categorie tradizionali
+            if 'df_data' in st.session_state and st.session_state['df_data'] is not None:
+                df = st.session_state['df_data']
+                traditional_categories = df['CATEGORIA_ESTESA'].value_counts() if 'CATEGORIA_ESTESA' in df.columns else {}
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**📊 Categorie Tradizionali (da tariffe):**")
+                    if len(traditional_categories) > 0:
+                        # Mostra le prime 10 categorie più comuni
+                        sorted_cats = list(traditional_categories.items())[:10]
+                        for cat, count in sorted_cats:
+                            if cat and pd.notna(cat):
+                                st.markdown(f"• {cat}: {count} voci")
+                    else:
+                        st.info("Nessuna categoria tradizionale trovata")
+                
+                with col2:
+                    st.markdown("**🆕 Nuove Categorie Gerarchiche:**")
+                    new_categories = get_categories_for_dataframe_mapping()
+                    for cat_name in new_categories[:10]:  # Mostra prime 10
+                        st.markdown(f"• {cat_name}")
+                    
+                    if len(new_categories) > 10:
+                        st.markdown(f"... e altre {len(new_categories) - 10} categorie")
+            
+            # Suggerimenti per l'uso
+            with st.expander("💡 Come usare le nuove categorie", expanded=False):
+                st.markdown("""
+                **Le categorie gerarchiche che hai creato possono essere utilizzate per:**
+                
+                1. **Organizzazione Avanzata**: Crea una struttura più logica e navigabile
+                2. **Filtri Personalizzati**: Applica filtri basati sulla tua organizzazione
+                3. **Export Strutturato**: Esporta dati organizzati secondo la tua gerarchia
+                4. **Analisi Migliorata**: Raggruppa e analizza i dati per categorie personalizzate
+                
+                **Prossimi passi:**
+                - Vai al tab "Ricerca Dati" per vedere come vengono integrate
+                - Le categorie sono salvate automaticamente nel tuo browser
+                - Puoi sempre modificarle o aggiungerne di nuove
+                """)
 
     with tab_ricerca:
         st.markdown("### 🔍 Ricerca e Filtri Dati")
@@ -979,13 +1042,6 @@ if df is not None and not df.empty:
                     df_export = pd.DataFrame(st.session_state['selected_rows'])
                     csv_data = df_export.to_csv(index=False)
                     
-                    st.download_button(
-                        label="📊 Scarica CSV",
-                        data=csv_data,
-                        file_name=f"mio_elenco_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
                     st.download_button(
                         label="📊 Scarica CSV",
                         data=csv_data,
