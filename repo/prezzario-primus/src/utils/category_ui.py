@@ -162,18 +162,21 @@ def display_current_categories() -> None:
         with col4:
             st.metric("Livello 2", level_counts[2])
         
-        # Lista delle categorie
+        # Lista delle categorie con indentazione
         with st.expander("📋 Lista Completa", expanded=True):
             for cat in categories:
                 col1, col2 = st.columns([4, 1])
+                # Indentazione visiva in base al livello
+                indent = "".join([" " for _ in range(cat['level'])])  # usa carattere unicode spazio sottile
+                bullet = "•" if cat['level'] == 0 else ("└─" if cat['level'] == 1 else "  └─")
                 with col1:
-                    st.markdown(f"{cat['display_name']}")
+                    st.markdown(f"{indent}{bullet} {cat['display_name']}")
                 with col2:
                     st.code(f"L{cat['level']}")
         
         # Azioni
-        col1, col2, col3 = st.columns(3)
-        
+        col1, col2, col3, col4 = st.columns(4)
+
         with col1:
             if st.button("🗑️ Cancella Tutte", key="clear_all_cats"):
                 del st.session_state.categories
@@ -182,13 +185,13 @@ def display_current_categories() -> None:
                 if 'categories_input' in st.session_state:
                     del st.session_state.categories_input
                 st.rerun()
-        
+
         with col2:
             if st.button("📝 Modifica", key="edit_cats"):
                 if 'categories_input' in st.session_state:
                     st.session_state.edit_mode = True
                     st.rerun()
-        
+
         with col3:
             # Export JSON
             export_data = export_categories_to_dict(categories)
@@ -200,6 +203,25 @@ def display_current_categories() -> None:
                 mime="application/json",
                 key="export_cats_btn"
             )
+
+        with col4:
+            if st.button("🔄 Sincronizza categorie custom", key="sync_custom_cats"):
+                # Trova tutte le foglie (categorie senza figli)
+                leaves = []
+                cats = st.session_state.categories
+                for i, cat in enumerate(cats):
+                    # Una foglia non ha nessun figlio con livello maggiore subito dopo
+                    is_leaf = True
+                    for j in range(i+1, len(cats)):
+                        if cats[j]['level'] > cat['level']:
+                            is_leaf = False
+                            break
+                        if cats[j]['level'] <= cat['level']:
+                            break
+                    if is_leaf:
+                        leaves.append(cat['display_name'])
+                st.session_state['custom_categories'] = leaves
+                st.success(f"Categorie custom sincronizzate con {len(leaves)} foglie della gerarchia!")
 
 
 def render_category_import() -> None:

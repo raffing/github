@@ -469,38 +469,6 @@ if df is not None and not df.empty:
         current_file = st.session_state.get('uploaded_file_name', 'Nessun file caricato')
         st.info(f"📄 File attualmente utilizzato: {current_file}")
 
-        # Gestione categorie personalizzate
-        st.markdown("#### 🏗️ Gestione Categorie Personalizzate")
-        if 'new_category_input' not in st.session_state:
-            st.session_state['new_category_input'] = ""
-        if st.session_state.get('reset_new_category_input', False):
-            st.session_state['new_category_input'] = ""
-            st.session_state['reset_new_category_input'] = False
-            st.rerun()
-        with st.form("new_category_form_settings"):
-            new_category = st.text_input(
-                "📝 Nome nuova categoria",
-                value=st.session_state['new_category_input'],
-                placeholder="es. Muratura, Impianti, ecc...",
-                key="new_category_input_settings"
-            )
-            submitted = st.form_submit_button("➕ Crea Categoria", use_container_width=True)
-            if submitted:
-                if new_category:
-                    if new_category not in st.session_state['custom_categories']:
-                        st.session_state['custom_categories'].append(new_category)
-                        auto_save_work_state()
-                    st.session_state['reset_new_category_input'] = True
-                    st.rerun()
-                else:
-                    st.session_state['reset_new_category_input'] = True
-                    st.rerun()
-        if st.session_state['custom_categories']:
-            st.markdown("**Categorie disponibili:**")
-            for i, cat in enumerate(st.session_state['custom_categories']):
-                st.write(f"{i+1}. {cat}")
-        else:
-            st.info("Nessuna categoria personalizzata creata.")
 
         # Salvataggio/caricamento lavoro
         st.markdown("#### 💾 Salvataggio e Caricamento Lavoro Locale")
@@ -957,17 +925,18 @@ if df is not None and not df.empty:
                                 skipped_count = 0
                                 existing_items = set(row['TARIFFA'] for row in st.session_state['selected_rows'] if 'TARIFFA' in row)
                                 for display_idx in selected_indices:
-                                    if display_idx < len(df_cat):
-                                        row_data = df_cat.iloc[display_idx].to_dict()
-                                        row_data.pop('Aggiungi', None)
-                                        tariffa_id = row_data.get('TARIFFA', '')
-                                        if tariffa_id not in existing_items:
-                                            row_data['_CUSTOM_CATEGORY'] = None
-                                            st.session_state['selected_rows'].append(row_data)
-                                            existing_items.add(tariffa_id)
-                                            added_count += 1
-                                        else:
-                                            skipped_count += 1
+                                        if display_idx < len(df_cat):
+                                            row_data = df_cat.iloc[display_idx].to_dict()
+                                            row_data.pop('Aggiungi', None)
+                                            tariffa_id = row_data.get('TARIFFA', '')
+                                            if tariffa_id not in existing_items:
+                                                # Imposta la categoria custom a None (sarà assegnata solo dall'utente)
+                                                row_data['_CUSTOM_CATEGORY'] = None
+                                                st.session_state['selected_rows'].append(row_data)
+                                                existing_items.add(tariffa_id)
+                                                added_count += 1
+                                            else:
+                                                skipped_count += 1
                                 if added_count > 0:
                                     auto_save_work_state()
                                     st.success(f"✅ Aggiunte {added_count} nuove voci al tuo elenco!")
@@ -1038,20 +1007,34 @@ if df is not None and not df.empty:
             # Mostra voci filtrate 
             st.markdown(f"#### 📑 Le Mie Voci ({selected_count})")
             
-            # Controlli per la gestione delle categorie custom
-            if st.session_state.get('custom_categories', []):
+            # Controlli per la gestione delle categorie custom (ora dalle foglie della gerarchia)
+            from src.utils.category_ui import get_categories_for_dataframe_mapping
+            # Recupera le foglie della gerarchia (categorie assegnabili)
+            categorie_custom = []
+            if 'categories' in st.session_state and st.session_state.categories:
+                # Trova tutte le foglie (categorie senza figli) e anche i nodi di primo livello
+                cats = st.session_state.categories
+                for i, cat in enumerate(cats):
+                    is_leaf = True
+                    for j in range(i+1, len(cats)):
+                        if cats[j]['level'] > cat['level']:
+                            is_leaf = False
+                            break
+                        if cats[j]['level'] <= cat['level']:
+                            break
+                    # Aggiungi se foglia oppure se di primo livello (level==0)
+                    if is_leaf or cat['level'] == 0:
+                        categorie_custom.append(cat['display_name'])
+            if categorie_custom:
                 st.markdown("##### 🏷️ Gestione Categorie Custom")
-                
                 col_cat_select, col_cat_action = st.columns([2, 1])
-                
                 with col_cat_select:
                     selected_category = st.selectbox(
                         "Seleziona categoria per assegnazione:",
-                        options=["Nessuna categoria"] + st.session_state['custom_categories'],
+                        options=["Nessuna categoria"] + categorie_custom,
                         key="category_assignment_select",
                         help="Seleziona la categoria da assegnare alle voci contrassegnate"
                     )
-                
                 with col_cat_action:
                     if st.button(
                         "🏷️ Assegna Categoria",
@@ -1060,9 +1043,7 @@ if df is not None and not df.empty:
                         use_container_width=True,
                         disabled=selected_category == "Nessuna categoria"
                     ):
-                        # Questa azione verrà gestita dopo la visualizzazione della tabella
                         st.session_state['pending_category_assignment'] = selected_category
-                
                 st.markdown("---")
             
             # Raggruppa per categoria personalizzata
@@ -1083,13 +1064,14 @@ if df is not None and not df.empty:
                     
                     # Aggiungi colonne per rimozione e selezione categoria
                     df_group.insert(0, "Rimuovi", False)
-                    
-                    # Aggiungi colonna per selezione categoria solo se ci sono categorie custom disponibili
-                    if st.session_state.get('custom_categories', []):
+                    # Aggiungi colonna per selezione categoria solo se ci sono categorie custom disponibili (foglie gerarchia)
+                    if len(categorie_custom) > 0:
                         df_group.insert(1, "Seleziona", False)
                     
-                    # Rimuovi colonne interne
-                    columns_to_show = [col for col in df_group.columns if not col.startswith('_') or col in ["Seleziona"]]
+                    # Rendi visibile la colonna custom category come 'Categoria Custom'
+                    df_group['Categoria Custom'] = df_group.get('_CUSTOM_CATEGORY', None)
+                    # Rimuovi colonne interne ma lascia 'Categoria Custom' visibile
+                    columns_to_show = [col for col in df_group.columns if (not col.startswith('_') or col in ["Seleziona"]) or col == 'Categoria Custom']
                     df_group_clean = df_group[columns_to_show].copy()
                     
                     # Configurazione colonne
@@ -1103,6 +1085,7 @@ if df is not None and not df.empty:
                         "DESCRIZIONE dell'ARTICOLO": st.column_config.TextColumn("📝 Descrizione", width="large"),
                         "Unità di misura": st.column_config.TextColumn("📏 Unità", width="small"),
                         "Prezzo": st.column_config.NumberColumn("💰 Prezzo", format="%.2f €", width="small"),
+                        "Categoria Custom": st.column_config.TextColumn("🏷️ Categoria Custom", width="medium"),
                     }
                     
                     # Aggiungi configurazione per colonna selezione categoria se presente
@@ -1200,10 +1183,12 @@ if df is not None and not df.empty:
             
             with col_exp2:
                 if st.session_state['selected_rows']:
-                    # Prepara CSV
+                    # Prepara CSV con colonna Categoria Custom
                     df_export = pd.DataFrame(st.session_state['selected_rows'])
+                    # Rinomina la colonna per l'export se presente
+                    if '_CUSTOM_CATEGORY' in df_export.columns:
+                        df_export = df_export.rename(columns={'_CUSTOM_CATEGORY': 'Categoria Custom'})
                     csv_data = df_export.to_csv(index=False)
-                    
                     st.download_button(
                         label="📊 Scarica CSV",
                         data=csv_data,
