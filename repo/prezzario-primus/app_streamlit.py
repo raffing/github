@@ -418,8 +418,16 @@ if st.session_state.get('file_loaded', False):
     df = st.session_state.get('df_data', None)
     
 if df is not None and not df.empty:
+    # Calcola il numero di elementi nel mio elenco
+    selected_count = len(st.session_state.get('selected_rows', []))
+    
     # TABS PRINCIPALI: Impostazioni, Categorie, Ricerca Dati, Il Mio Elenco
-    tab_impostazioni, tab_categorie, tab_ricerca, tab_elenco = st.tabs(["⚙️ Impostazioni", "📋 Categorie", "🔍 Ricerca Dati", "📚 Il Mio Elenco"])
+    tab_impostazioni, tab_categorie, tab_ricerca, tab_elenco = st.tabs([
+        "⚙️ Impostazioni", 
+        "📋 Categorie", 
+        "🔍 Ricerca Dati", 
+        f"📚 Il Mio Elenco ({selected_count})"
+    ])
 
     with tab_impostazioni:
         st.markdown("### ⚙️ Impostazioni e Gestione Categorie")
