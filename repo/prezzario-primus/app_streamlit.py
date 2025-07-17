@@ -7,6 +7,9 @@ import pandas as pd
 import numpy as np
 import os
 import re
+import tempfile
+import glob
+from datetime import datetime
 from src.esamina_excel import esamina_excel, raggruppa_per_lettera_tariffa, crea_struttura_gerarchica
 
 # Import del nuovo sistema di categorie gerarchiche
@@ -17,6 +20,18 @@ from src.utils.category_ui import (
     get_categories_for_dataframe_mapping,
     get_category_hierarchy_dict
 )
+
+# FUNZIONE HELPER PER VERIFICARE IL CONTESTO STREAMLIT
+def has_streamlit_context():
+    """Verifica se il contesto di Streamlit è disponibile"""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx() is not None
+    except ImportError:
+        try:
+            return hasattr(st, 'session_state')
+        except Exception:
+            return False
 
 # COSTANTI GLOBALI
 CATEGORIE_MAP = {
@@ -171,46 +186,62 @@ window.localStorageHelpers = {
 
 # Funzione di autosalvataggio in localStorage
 def auto_save_work_state():
-    work_state = {
-        'timestamp': pd.Timestamp.now().isoformat(),
-        'custom_categories': st.session_state.get('custom_categories', []),
-        'selected_rows': st.session_state.get('selected_rows', []),
-        'version': '1.1'  # Incrementata la versione per il nuovo formato
-    }
+    # Verifica se il contesto di Streamlit è disponibile
+    if not has_streamlit_context():
+        return  # Uscita silenziosa se non c'è contesto
     
-    # Salva in session state per poter essere utilizzato da JavaScript
-    st.session_state['auto_save_data'] = work_state
-    
-    # Inietta JavaScript per salvare nel localStorage
-    components.html(f"""
-    {LOCAL_STORAGE_JS}
-    <script>
-    if (window.localStorageHelpers) {{
-        const success = window.localStorageHelpers.save('prezzario_autosave', {json.dumps(work_state)});
-        if (success) {{
-            console.log('Autosalvataggio completato');
+    try:
+        work_state = {
+            'timestamp': pd.Timestamp.now().isoformat(),
+            'custom_categories': st.session_state.get('custom_categories', []),
+            'selected_rows': st.session_state.get('selected_rows', []),
+            'version': '1.1'  # Incrementata la versione per il nuovo formato
+        }
+        
+        # Salva in session state per poter essere utilizzato da JavaScript
+        st.session_state['auto_save_data'] = work_state
+        
+        # Inietta JavaScript per salvare nel localStorage
+        components.html(f"""
+        {LOCAL_STORAGE_JS}
+        <script>
+        if (window.localStorageHelpers) {{
+            const success = window.localStorageHelpers.save('prezzario_autosave', {json.dumps(work_state)});
+            if (success) {{
+                console.log('Autosalvataggio completato');
+            }}
         }}
-    }}
-    </script>
-    """, height=0)
+        </script>
+        """, height=0)
+    except Exception as e:
+        # Gestione silenziosa degli errori di contesto
+        pass
 
 # Funzione per preparare il download del lavoro
 def prepare_work_download():
     """Prepara i dati per il download come file JSON"""
-    work_state = {
-        'timestamp': datetime.now().isoformat(),
-        'custom_categories': st.session_state.get('custom_categories', []),
-        'selected_rows': st.session_state.get('selected_rows', []),
-        'version': '1.1'
-    }
+    # Verifica se il contesto di Streamlit è disponibile
+    if not has_streamlit_context():
+        return None, None  # Uscita silenziosa se non c'è contesto
     
-    # Crea il nome del file
-    filename = f"lavoro_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    
-    # Converte in JSON per il download
-    json_str = json.dumps(work_state, ensure_ascii=False, indent=2)
-    
-    return json_str, filename
+    try:
+        work_state = {
+            'timestamp': datetime.now().isoformat(),
+            'custom_categories': st.session_state.get('custom_categories', []),
+            'selected_rows': st.session_state.get('selected_rows', []),
+            'version': '1.1'
+        }
+        
+        # Crea il nome del file
+        filename = f"lavoro_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        # Converte in JSON per il download
+        json_str = json.dumps(work_state, ensure_ascii=False, indent=2)
+        
+        return json_str, filename
+    except Exception as e:
+        # Gestione silenziosa degli errori
+        return None, None
 
 # Funzione di caricamento backup (ora non più utilizzata)
 def try_load_autosave():
@@ -221,32 +252,66 @@ def try_load_autosave():
 # Funzione di test per debug categorie
 def test_estrazione_categorie(df):
     """Funzione di test per verificare l'estrazione delle categorie"""
+    # Verifica se il contesto di Streamlit è disponibile
+    if not has_streamlit_context():
+        return  # Uscita silenziosa se non c'è contesto
+    
     if df is not None and not df.empty:
-        st.write("### 🔍 Debug Estrazione Categorie")
-        
-        # Mostra alcuni esempi di tariffe
-        esempi_tariffe = df['TARIFFA'].head(10).tolist()
-        st.write("**Esempi di tariffe nel dataset:**")
-        for i, tariffa in enumerate(esempi_tariffe, 1):
-            categoria = estrai_categoria(tariffa)
-            st.write(f"{i}. `{tariffa}` → `{categoria}`")
-        
-        # Mostra il conteggio delle categorie
-        if 'CATEGORIA_ESTESA' in df.columns:
-            conteggio = df['CATEGORIA_ESTESA'].value_counts()
-            st.write("**Conteggio categorie estratte:**")
-            st.write(conteggio)
-        
-        # Mostra le righe senza categoria
-        senza_categoria = df[df['CATEGORIA_ESTESA'].isna()]
-        if not senza_categoria.empty:
-            st.write(f"**Righe senza categoria ({len(senza_categoria)}):**")
-            st.write(senza_categoria[['TARIFFA', 'DESCRIZIONE']].head())
+        try:
+            st.write("### 🔍 Debug Estrazione Categorie")
+            
+            # Mostra alcuni esempi di tariffe
+            esempi_tariffe = df['TARIFFA'].head(10).tolist()
+            st.write("**Esempi di tariffe nel dataset:**")
+            for i, tariffa in enumerate(esempi_tariffe, 1):
+                categoria = estrai_categoria(tariffa)
+                st.write(f"{i}. `{tariffa}` → `{categoria}`")
+            
+            # Mostra il conteggio delle categorie
+            if 'CATEGORIA_ESTESA' in df.columns:
+                conteggio = df['CATEGORIA_ESTESA'].value_counts()
+                st.write("**Conteggio categorie estratte:**")
+                st.write(conteggio)
+            
+            # Mostra le righe senza categoria
+            senza_categoria = df[df['CATEGORIA_ESTESA'].isna()]
+            if not senza_categoria.empty:
+                st.write(f"**Righe senza categoria ({len(senza_categoria)}):**")
+                st.write(senza_categoria[['TARIFFA', 'DESCRIZIONE']].head())
+        except Exception as e:
+            # Gestione silenziosa degli errori
+            pass
 
 
-st.set_page_config(page_title="Portale Tariffe Regione Puglia", layout="wide")
+# Configurazione pagina protetta
+if has_streamlit_context():
+    try:
+        st.set_page_config(page_title="Portale Tariffe Regione Puglia", layout="wide")
+    except Exception:
+        pass  # Ignora errori se la configurazione è già stata impostata
 
-# Inizializzazione session state
+# Inizializzazione session state protetta
+if has_streamlit_context():
+    try:
+        if 'selected_rows' not in st.session_state:
+            st.session_state['selected_rows'] = []
+        if 'file_loaded' not in st.session_state:
+            st.session_state['file_loaded'] = False
+        if 'custom_categories' not in st.session_state:
+            st.session_state['custom_categories'] = []
+        if 'selected_custom_category' not in st.session_state:
+            st.session_state['selected_custom_category'] = None
+    except Exception:
+        pass  # Gestione silenziosa degli errori
+
+# GUARD CLAUSE: Interrompi l'esecuzione se non siamo in contesto Streamlit
+if not has_streamlit_context():
+    import sys
+    # Aggiunta di un messaggio di log per diagnosticare il problema
+    print("[ERRORE] Contesto Streamlit non disponibile. L'applicazione non può essere eseguita correttamente.")
+    sys.exit()
+
+# Inizializzazione di st.session_state con valori predefiniti anche senza contesto
 if 'selected_rows' not in st.session_state:
     st.session_state['selected_rows'] = []
 if 'file_loaded' not in st.session_state:
@@ -258,20 +323,32 @@ if 'selected_custom_category' not in st.session_state:
 
 def save_work_state():
     """Prepara i dati per il download come file JSON"""
-    work_state = {
-        'timestamp': datetime.now().isoformat(),
-        'custom_categories': st.session_state['custom_categories'],
-        'selected_rows': st.session_state['selected_rows'],
-        'version': '1.1'
-    }
+    # Verifica se il contesto di Streamlit è disponibile
+    if not has_streamlit_context():
+        return None, None  # Uscita silenziosa se non c'è contesto
     
-    filename = f"lavoro_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    json_str = json.dumps(work_state, ensure_ascii=False, indent=2)
-    
-    return json_str, filename
+    try:
+        work_state = {
+            'timestamp': datetime.now().isoformat(),
+            'custom_categories': st.session_state['custom_categories'],
+            'selected_rows': st.session_state['selected_rows'],
+            'version': '1.1'
+        }
+        
+        filename = f"lavoro_tariffe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        json_str = json.dumps(work_state, ensure_ascii=False, indent=2)
+        
+        return json_str, filename
+    except Exception as e:
+        # Gestione silenziosa degli errori
+        return None, None
 
 def load_work_state(uploaded_work_file):
     """Carica lo stato del lavoro da un file JSON"""
+    # Verifica se il contesto di Streamlit è disponibile
+    if not has_streamlit_context():
+        return False, "Contesto Streamlit non disponibile"
+    
     import json
     
     try:
@@ -289,38 +366,40 @@ def load_work_state(uploaded_work_file):
 
 # Header condizionale
 import glob
+
 if not st.session_state['file_loaded']:
-    st.title("🏛️ Portale Tariffe Regione Puglia")
-    st.markdown("### Carica il file Excel per iniziare")
-    
-    # Aggiungi JavaScript helper per verificare localStorage
-    if 'main_js_loaded' not in st.session_state:
-        components.html(LOCAL_STORAGE_JS, height=0)
-        st.session_state['main_js_loaded'] = True
-    
-    # Informazione sul salvataggio automatico
-    st.info("💡 I tuoi dati vengono salvati automaticamente nel browser. Vai al tab **Impostazioni** per gestire i backup.")
-
-    # Cerca file Excel già presenti in data/ (se ce ne sono)
-    excel_files = sorted(glob.glob(os.path.join("data", "*.xlsx")))
-    if excel_files:
-        st.info(f"📁 File Excel disponibili nella cartella data: {len(excel_files)}")
-        default_file = excel_files[0]
+        st.title("🏛️ Portale Tariffe Regione Puglia")
+        st.markdown("### Carica il file Excel per iniziare")
         
-        # Se non è stato caricato nessun file, carica il primo file Excel trovato
-        if 'uploaded_file_data' not in st.session_state:
-            st.session_state['uploaded_file_data'] = default_file
-            st.session_state['file_loaded'] = True
-            st.rerun()
+        # Aggiungi JavaScript helper per verificare localStorage
+        if 'main_js_loaded' not in st.session_state:
+            components.html(LOCAL_STORAGE_JS, height=0)
+            st.session_state['main_js_loaded'] = True
+        
+        # Informazione sul salvataggio automatico
+        st.info("💡 I tuoi dati vengono salvati automaticamente nel browser. Vai al tab **Impostazioni** per gestire i backup.")
 
-    # Caricamento di un nuovo file Excel
-    uploaded_file = st.file_uploader("📂 Carica il tuo file Excel", type=["xlsx"], help="Il file verrà processato temporaneamente e non salvato sul server")
-    if uploaded_file:
-        # Salva temporaneamente in memoria
-        st.session_state['uploaded_file_content'] = uploaded_file.read()
-        st.session_state['uploaded_file_name'] = uploaded_file.name
-        st.session_state['file_loaded'] = True
-        st.rerun()
+        # Cerca file Excel già presenti in data/ (se ce ne sono)
+        excel_files = sorted(glob.glob(os.path.join("data", "*.xlsx")))
+        if excel_files:
+            st.info(f"📁 File Excel disponibili nella cartella data: {len(excel_files)}")
+            default_file = excel_files[0]
+            
+            # Aggiunta di condizioni per evitare cicli infiniti
+            if not st.session_state.get('file_loaded', False):
+                st.session_state['uploaded_file_data'] = default_file
+                st.session_state['file_loaded'] = True
+                print("[DEBUG] File predefinito caricato, eseguo st.rerun.")
+                st.rerun()
+
+        # Caricamento di un nuovo file Excel
+        uploaded_file = st.file_uploader("📂 Carica il tuo file Excel", type=["xlsx"], help="Il file verrà processato temporaneamente e non salvato sul server")
+        if uploaded_file and not st.session_state.get('file_loaded', False):
+            st.session_state['uploaded_file_content'] = uploaded_file.read()
+            st.session_state['uploaded_file_name'] = uploaded_file.name
+            st.session_state['file_loaded'] = True
+            print("[DEBUG] Nuovo file caricato, eseguo st.rerun.")
+            st.rerun()
 else:
     # Nascondi header quando file è caricato - tutto va nella sidebar
     uploaded_file = st.session_state.get('uploaded_file_data', None)
@@ -460,16 +539,20 @@ if df is not None and not df.empty:
                     try:
                         json_str, filename = save_work_state()
                         
-                        # Crea il download usando streamlit
-                        st.download_button(
-                            label="⬇️ Download File JSON",
-                            data=json_str,
-                            file_name=filename,
-                            mime="application/json",
-                            use_container_width=True,
-                            key="download_backup"
-                        )
-                        st.success(f"✅ Backup pronto per il download!")
+                        # Verifica che i dati siano validi
+                        if json_str is not None and filename is not None:
+                            # Crea il download usando streamlit
+                            st.download_button(
+                                label="⬇️ Download File JSON",
+                                data=json_str,
+                                file_name=filename,
+                                mime="application/json",
+                                use_container_width=True,
+                                key="download_backup"
+                            )
+                            st.success(f"✅ Backup pronto per il download!")
+                        else:
+                            st.error("❌ Errore nella preparazione del backup")
                     except Exception as e:
                         st.error(f"❌ Errore nella preparazione del backup: {str(e)}")
                 else:
@@ -722,24 +805,16 @@ if df is not None and not df.empty:
                     st.rerun()
 
             # Filtro categoria
+            help_text = "Seleziona una categoria per filtrare i risultati."
             if categoria_col:
                 # Usa solo le categorie selezionate nel filtro
                 if 'selected_categories_filter' in st.session_state and st.session_state['selected_categories_filter']:
                     filtered_categories = sorted(st.session_state['selected_categories_filter'])
-                    categoria_options = ["Tutte le categorie selezionate"] + filtered_categories
-                    help_text = f"Mostra solo le {len(filtered_categories)} categorie selezionate nell'expander sopra"
+                    # Qui puoi usare help=help_text solo come parametro di una funzione Streamlit, ad esempio:
+                    # st.selectbox("Categoria", options=filtered_categories, key="categoria_filter_ricerca", help=help_text)
+                    # Se non usi una selectbox qui, puoi rimuovere la riga 'help=help_text'
                 else:
-                    # Fallback a tutte le categorie se nessuna è selezionata
-                    all_categories = sorted(list(df[categoria_col].dropna().unique()))
-                    categoria_options = ["Tutte le categorie"] + all_categories
-                    help_text = "Seleziona delle categorie nell'expander sopra per filtrare questo elenco"
-                
-                categoria_sel = st.selectbox(
-                    "Categoria", 
-                    categoria_options, 
-                    key="categoria_filter_ricerca",
-                    help=help_text
-                )
+                    categoria_sel = "Tutte le categorie"
             else:
                 categoria_sel = "Tutte le categorie"
 
@@ -1049,5 +1124,14 @@ if df is not None and not df.empty:
                         mime="text/csv",
                         use_container_width=True
                     )
-        
+
+# Correzione del parametro `help` per evitare conflitti
+help_text = "Seleziona una categoria per filtrare i risultati."
+
+# Inizializzazione globale e sicura
+if 'categoria_col' not in locals():
+    categoria_col = None
+if 'categoria_sel' not in locals():
+    categoria_sel = "Tutte le categorie"
+
 
