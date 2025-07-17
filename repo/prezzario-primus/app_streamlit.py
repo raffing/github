@@ -326,15 +326,24 @@ def load_work_state(uploaded_work_file):
     import json
     
     try:
-        work_data = json.loads(uploaded_work_file.read().decode('utf-8'))
-        
+        content = uploaded_work_file.read()
+        # Se è già stringa, non serve decodificare
+        if isinstance(content, bytes):
+            content = content.decode('utf-8')
+        # Verifica che sia una stringa JSON valida
+        if not isinstance(content, str):
+            return False, "Il file caricato non è una stringa valida."
+        try:
+            work_data = json.loads(content)
+        except Exception as e:
+            return False, f"Errore di parsing JSON: {str(e)}"
         # Valida la struttura
-        if 'custom_categories' in work_data and 'selected_rows' in work_data:
+        if isinstance(work_data, dict) and 'custom_categories' in work_data and 'selected_rows' in work_data:
             st.session_state['custom_categories'] = work_data['custom_categories']
             st.session_state['selected_rows'] = work_data['selected_rows']
             return True, f"Caricato lavoro del {work_data.get('timestamp', 'data sconosciuta')}"
         else:
-            return False, "File di lavoro non valido"
+            return False, "File di lavoro non valido o struttura errata."
     except Exception as e:
         return False, f"Errore nel caricamento: {str(e)}"
 
@@ -362,6 +371,7 @@ if not st.session_state['file_loaded']:
             # Aggiunta di condizioni per evitare cicli infiniti
             if not st.session_state.get('file_loaded', False):
                 st.session_state['uploaded_file_data'] = default_file
+                st.session_state['uploaded_file_name'] = os.path.basename(default_file)
                 st.session_state['file_loaded'] = True
                 print("[DEBUG] File predefinito caricato, eseguo st.rerun.")
                 st.rerun()
@@ -516,14 +526,19 @@ if df is not None and not df.empty:
                 help="Carica un file JSON precedentemente scaricato"
             )
             if uploaded_work:
-                success, message = load_work_state(uploaded_work)
-                if success:
-                    # Salva anche nel localStorage dopo il caricamento
-                    auto_save_work_state()
-                    st.success(f"✅ {message}")
-                    st.rerun()
+                # Usa un flag per evitare loop infinito di st.rerun
+                if not st.session_state.get('work_loaded_once', False):
+                    success, message = load_work_state(uploaded_work)
+                    if success:
+                        auto_save_work_state()
+                        st.session_state['work_loaded_once'] = True
+                        st.success(f"✅ {message}")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+                        st.session_state['work_loaded_once'] = False
                 else:
-                    st.error(f"❌ {message}")
+                    st.info("Backup già caricato. Se vuoi caricare un altro backup, aggiorna la pagina.")
         
         with col_restore:
             # Bottone per ripristinare dal localStorage
