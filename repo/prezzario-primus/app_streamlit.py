@@ -99,16 +99,16 @@ def get_categoria_from_tariffa(tariffa):
 def aggiungi_categoria_estesa(df):
     """Aggiunge la colonna CATEGORIA_ESTESA se non esiste"""
     if 'CATEGORIA_ESTESA' not in df.columns:
-        # Prima di applicare la funzione, mostra alcuni esempi di tariffe per debug
-        print("Debug: Prime 10 tariffe nel dataset:")
-        print(df['TARIFFA'].head(10).tolist())
-        
+        # Rimuovi stampe di debug
+        # print("Debug: Prime 10 tariffe nel dataset:")
+        # print(df['TARIFFA'].head(10).tolist())
+
         df['CATEGORIA_ESTESA'] = df['TARIFFA'].apply(estrai_categoria)
-        
-        # Verifica quante categorie sono state estratte
-        categorie_trovate = df['CATEGORIA_ESTESA'].value_counts()
-        print("Debug: Categorie estratte:")
-        print(categorie_trovate)
+
+        # Rimuovi stampe di debug
+        # categorie_trovate = df['CATEGORIA_ESTESA'].value_counts()
+        # print("Debug: Categorie estratte:")
+        # print(categorie_trovate)
         
     return df
 
@@ -249,39 +249,6 @@ def try_load_autosave():
     # Restituisce sempre False per disabilitare il caricamento automatico
     return False, None
 
-# Funzione di test per debug categorie
-def test_estrazione_categorie(df):
-    """Funzione di test per verificare l'estrazione delle categorie"""
-    # Verifica se il contesto di Streamlit è disponibile
-    if not has_streamlit_context():
-        return  # Uscita silenziosa se non c'è contesto
-    
-    if df is not None and not df.empty:
-        try:
-            st.write("### 🔍 Debug Estrazione Categorie")
-            
-            # Mostra alcuni esempi di tariffe
-            esempi_tariffe = df['TARIFFA'].head(10).tolist()
-            st.write("**Esempi di tariffe nel dataset:**")
-            for i, tariffa in enumerate(esempi_tariffe, 1):
-                categoria = estrai_categoria(tariffa)
-                st.write(f"{i}. `{tariffa}` → `{categoria}`")
-            
-            # Mostra il conteggio delle categorie
-            if 'CATEGORIA_ESTESA' in df.columns:
-                conteggio = df['CATEGORIA_ESTESA'].value_counts()
-                st.write("**Conteggio categorie estratte:**")
-                st.write(conteggio)
-            
-            # Mostra le righe senza categoria
-            senza_categoria = df[df['CATEGORIA_ESTESA'].isna()]
-            if not senza_categoria.empty:
-                st.write(f"**Righe senza categoria ({len(senza_categoria)}):**")
-                st.write(senza_categoria[['TARIFFA', 'DESCRIZIONE']].head())
-        except Exception as e:
-            # Gestione silenziosa degli errori
-            pass
-
 
 # Configurazione pagina protetta
 if has_streamlit_context():
@@ -301,6 +268,13 @@ if has_streamlit_context():
             st.session_state['custom_categories'] = []
         if 'selected_custom_category' not in st.session_state:
             st.session_state['selected_custom_category'] = None
+        if 'available_categories' not in st.session_state:
+            if 'df_data' in st.session_state and st.session_state['df_data'] is not None:
+                categoria_col = "CATEGORIA_ESTESA" if "CATEGORIA_ESTESA" in st.session_state['df_data'].columns else None
+                if categoria_col:
+                    st.session_state['available_categories'] = sorted(list(st.session_state['df_data'][categoria_col].dropna().unique()))
+            else:
+                st.session_state['available_categories'] = []
     except Exception:
         pass  # Gestione silenziosa degli errori
 
@@ -625,8 +599,6 @@ if df is not None and not df.empty:
                 st.success("✅ Cache del browser pulita!")
 
     with tab_categorie:
-        st.markdown("### 📋 Sistema di Categorie Gerarchiche")
-        
         # Integrazione del nuovo sistema di categorie
         render_category_management_page()
         
@@ -685,22 +657,22 @@ if df is not None and not df.empty:
         else:
             df = st.session_state['df_data']
             
-            # SEZIONE DEBUG (rimuovi dopo aver risolto)
-            with st.expander("🐛 Debug Categorie", expanded=False):
-                test_estrazione_categorie(df)
-            
             categoria_col = "CATEGORIA_ESTESA" if "CATEGORIA_ESTESA" in df.columns else None
+            
+            # Inizializza tutte le categorie come selezionate se non esiste la sessione
+            if categoria_col:
+                all_categories = sorted(list(df[categoria_col].dropna().unique()))
+                if 'selected_categories_filter' not in st.session_state:
+                    st.session_state['selected_categories_filter'] = all_categories.copy()
             
             # Sezione categorie disponibili (richiudibile)
             with st.expander("📋 Categorie Disponibili", expanded=False):
                 st.markdown("#### 🏷️ Panoramica delle Categorie")
                 if categoria_col:
                     all_categories = sorted(list(df[categoria_col].dropna().unique()))
-                    
                     # Inizializza la selezione delle categorie se non esiste
                     if 'selected_categories_filter' not in st.session_state:
                         st.session_state['selected_categories_filter'] = all_categories.copy()
-                    
                     # Sezione di controllo per la selezione
                     col_sel1, col_sel2, col_sel3 = st.columns([2, 1, 1])
                     with col_sel1:
@@ -713,23 +685,16 @@ if df is not None and not df.empty:
                         if st.button("❌ Deseleziona Tutte", key="deselect_all_categories", use_container_width=True):
                             st.session_state['selected_categories_filter'] = []
                             st.rerun()
-                    
                     # Lista di checkbox per ogni categoria
                     selected_categories = []
-                    
-                    # Organizza in colonne per una migliore visualizzazione
                     num_cols = 2
                     cols = st.columns(num_cols)
-                    
                     for i, cat in enumerate(all_categories):
                         with cols[i % num_cols]:
                             df_cat = df[df[categoria_col] == cat]
                             count = len(df_cat)
-                            
-                            # Checkbox per ogni categoria
                             is_selected = cat in st.session_state['selected_categories_filter']
                             checkbox_key = f"category_checkbox_{i}_{cat}"
-                            
                             if st.checkbox(
                                 f"{cat} ({count} voci)",
                                 value=is_selected,
@@ -740,22 +705,18 @@ if df is not None and not df.empty:
                             else:
                                 if cat in st.session_state['selected_categories_filter']:
                                     st.session_state['selected_categories_filter'].remove(cat)
-                    
                     # Aggiorna le categorie selezionate
                     for cat in selected_categories:
                         if cat not in st.session_state['selected_categories_filter']:
                             st.session_state['selected_categories_filter'].append(cat)
-                    
                     # Mostra riepilogo delle categorie selezionate
                     st.markdown(f"**Categorie selezionate:** {len(st.session_state['selected_categories_filter'])}/{len(all_categories)}")
-                    
                     # Crea una tabella riassuntiva solo delle categorie selezionate
                     if st.session_state['selected_categories_filter']:
                         category_overview = []
                         for cat in st.session_state['selected_categories_filter']:
                             df_cat = df[df[categoria_col] == cat]
                             count = len(df_cat)
-                            # Calcola prezzo medio se possibile
                             try:
                                 prezzi_validi = pd.to_numeric(df_cat['Prezzo'], errors='coerce').dropna()
                                 prezzo_medio = prezzi_validi.mean() if len(prezzi_validi) > 0 else 0
@@ -763,14 +724,12 @@ if df is not None and not df.empty:
                             except:
                                 prezzo_medio = 0
                                 valore_totale = 0
-                            
                             category_overview.append({
                                 "Categoria": cat,
                                 "N° Voci": count,
                                 "Prezzo Medio": f"€ {prezzo_medio:.2f}",
                                 "Valore Totale": f"€ {valore_totale:,.2f}"
                             })
-                        
                         if category_overview:
                             overview_df = pd.DataFrame(category_overview)
                             st.dataframe(
@@ -778,6 +737,7 @@ if df is not None and not df.empty:
                                 use_container_width=True,
                                 hide_index=True
                             )
+
                     else:
                         st.warning("⚠️ Nessuna categoria selezionata. I filtri mostreranno tutti i risultati.")
                 else:
@@ -820,7 +780,7 @@ if df is not None and not df.empty:
                 categoria_sel = "Tutte le categorie"
 
             # Ricerca batch
-            def batch_search_ricerca(df, search_tariffa, search_desc, search_unita, search_prezzo, batch_size=50, batch_start=0):
+            def batch_search_ricerca(df, search_tariffa, search_desc, search_unita, search_prezzo, batch_size=100, batch_start=0):
                 mask = np.ones(len(df), dtype=bool)
                 if search_tariffa:
                     mask &= df['TARIFFA'].astype(str).str.contains(search_tariffa, case=False, na=False).values
@@ -839,72 +799,116 @@ if df is not None and not df.empty:
 
             if 'batch_start' not in st.session_state:
                 st.session_state['batch_start'] = 0
-            batch_size = 50
+            batch_size = 100
             
             # Gestione filtro categoria con selezione multipla
-            if categoria_sel in ["Tutte le categorie", "Tutte le categorie selezionate"] or not categoria_col:
-                if categoria_sel == "Tutte le categorie selezionate" and 'selected_categories_filter' in st.session_state:
-                    # Filtra solo per le categorie selezionate
-                    if st.session_state['selected_categories_filter']:
-                        df_categoria = df[df[categoria_col].isin(st.session_state['selected_categories_filter'])]
-                    else:
-                        df_categoria = df  # Se nessuna categoria selezionata, mostra tutto
-                else:
-                    df_categoria = df  # Tutte le categorie
+            if categoria_col and 'selected_categories_filter' in st.session_state and st.session_state['selected_categories_filter']:
+                # Filtra solo per le categorie selezionate nel multiselect
+                df_categoria = df[df[categoria_col].isin(st.session_state['selected_categories_filter'])]
             else:
-                df_categoria = df[df[categoria_col] == categoria_sel]
+                # Se non ci sono categorie selezionate o non c'è la colonna categoria, mostra tutto
+                df_categoria = df
             
             df_batch, total_found, df_filtered = batch_search_ricerca(df_categoria, search_tariffa, search_desc, search_unita, search_prezzo, batch_size, st.session_state['batch_start'])
 
-            # Statistiche
-            col_stats1, col_stats2, col_stats3 = st.columns(3)
-            with col_stats1:
-                st.metric("Voci in categoria", f"{len(df_categoria):,}")
-            with col_stats2:
-                st.metric("Voci filtrate", f"{total_found:,}")
-            with col_stats3:
-                current_page = (st.session_state['batch_start'] // batch_size) + 1
-                total_pages = max(1, (total_found - 1) // batch_size + 1)
-                st.metric("Pagina", f"{current_page}/{total_pages}")
-
-            # Raggruppamento per categoria
-            categorie_map = {
-                '01': '01 - Edilizia',
-                '02': '02 - Restauro e opere di recupero',
-                '03': '03 - Infrastrutture',
-                '04': '04 - Impianti elettrici',
-                '05': '05 - Impianti di adduzione idrica e di scarico',
-                '06': '06 - Impianti antincendio',
-                '07': '07 - Impianti termici',
-                '08': '08 - Fognature ed acquedotti',
-                '09': '09 - Sicurezza in azienda e in cantiere',
-                '10': '10 - Opere marittime',
-                '11': '11 - Impianti sportivi',
-                '12': '12 - Igiene ambientale',
-                '13': '13 - Opere idrauliche e di bonifica e consolidamento',
-                '14': '14 - Opere forestali',
-                '15': '15 - Sondaggi e prove',
-                '16': '16 - Opere a verde e irrigazione',
-                '17': '17 - Arredo urbano e parco giochi'
-            }
-
-            def group_results_by_category(df_batch):
-                groups = {}
-                for _, row in df_batch.iterrows():
-                    categoria_num = get_categoria_from_tariffa(row['TARIFFA'])
-                    if categoria_num:
-                        categoria_nome = CATEGORIE_MAP.get(categoria_num, f"Categoria {categoria_num}")
-                    else:
-                        categoria_nome = "Senza Categoria"
-                    if categoria_nome not in groups:
-                        groups[categoria_nome] = []
-                    groups[categoria_nome].append(row)
-                return groups
-
             category_groups = group_results_by_category(df_batch)
+            
+            # Valori di default per le variabili di paginazione
+            current_page = 1
+            total_pages = 1
+            display_total_found = total_found
 
             # Visualizzazione risultati
             if total_found > 0:
+                # --- Selectbox per filtrare la tabella per categoria ---
+                st.markdown("**📊 Mostra solo una categoria nella tabella:**")
+                
+                # Usa tutte le categorie selezionate dalla sezione "Categorie disponibili"
+                # indipendentemente dal fatto che abbiano risultati nella pagina corrente
+                if 'selected_categories_filter' in st.session_state and st.session_state['selected_categories_filter']:
+                    available_categories = st.session_state['selected_categories_filter'].copy()
+                else:
+                    available_categories = list(category_groups.keys())
+                
+                single_category_options = ["Tutte le categorie"] + available_categories
+                if 'single_category_display' not in st.session_state:
+                    st.session_state['single_category_display'] = "Tutte le categorie"
+                
+                st.session_state['single_category_display'] = st.selectbox(
+                    "Seleziona categoria da visualizzare",
+                    options=single_category_options,
+                    index=single_category_options.index(st.session_state['single_category_display']) if st.session_state['single_category_display'] in single_category_options else 0,
+                    key="selectbox_category_display",
+                    help="Seleziona una categoria specifica da mostrare nella tabella"
+                )
+                
+                # Applica il filtro categoria per la visualizzazione
+                if st.session_state['single_category_display'] != "Tutte le categorie":
+                    # Se la categoria selezionata è presente nei risultati correnti, usa quelli
+                    if st.session_state['single_category_display'] in category_groups:
+                        filtered_display_groups = {k: v for k, v in category_groups.items() if k == st.session_state['single_category_display']}
+                    else:
+                        # Se la categoria selezionata non è presente nei risultati correnti,
+                        # cerca tutti i risultati per quella categoria specifica
+                        selected_category = st.session_state['single_category_display']
+                        # Filtra il dataframe per la categoria selezionata
+                        if categoria_col:
+                            df_selected_category = df[df[categoria_col] == selected_category]
+                        else:
+                            df_selected_category = pd.DataFrame()  # Dataframe vuoto se non c'è colonna categoria
+                        
+                        # Applica i filtri di ricerca anche a questa categoria
+                        mask = np.ones(len(df_selected_category), dtype=bool)
+                        if search_tariffa:
+                            mask &= df_selected_category['TARIFFA'].astype(str).str.contains(search_tariffa, case=False, na=False).values
+                        if search_desc:
+                            mask &= df_selected_category["DESCRIZIONE dell'ARTICOLO"].astype(str).str.contains(search_desc, case=False, na=False).values
+                        if search_unita:
+                            mask &= df_selected_category['Unità di misura'].astype(str).str.contains(search_unita, case=False, na=False).values
+                        if search_prezzo:
+                            mask &= df_selected_category['Prezzo'].astype(str).str.contains(search_prezzo, case=False, na=False).values
+                        
+                        df_selected_filtered = df_selected_category[mask]
+                        
+                        # Applica la paginazione ai risultati della categoria selezionata
+                        if len(df_selected_filtered) > 0:
+                            start_idx = st.session_state['batch_start']
+                            end_idx = min(start_idx + batch_size, len(df_selected_filtered))
+                            df_selected_paginated = df_selected_filtered.iloc[start_idx:end_idx]
+                            filtered_display_groups = {selected_category: df_selected_paginated.to_dict('records')}
+                            # Aggiorna display_total_found con il totale della categoria (non paginato)
+                            display_total_found = len(df_selected_filtered)
+                        else:
+                            filtered_display_groups = {}
+                            display_total_found = 0
+                            st.info(f"ℹ️ Nessun risultato trovato per la categoria '{selected_category}' con i filtri attuali.")
+                else:
+                    filtered_display_groups = category_groups
+                    display_total_found = total_found
+                
+                # Ricalcola le statistiche dopo aver applicato il filtro categoria
+                # display_total_found è già stato calcolato nella sezione precedente
+                
+                # Calcola le statistiche per la visualizzazione
+                current_page = (st.session_state['batch_start'] // batch_size) + 1
+                total_pages = max(1, (display_total_found - 1) // batch_size + 1)
+                
+                # Se la pagina corrente supera il totale delle pagine, resetta alla prima pagina
+                if current_page > total_pages:
+                    st.session_state['batch_start'] = 0
+                    current_page = 1
+                    total_pages = max(1, (display_total_found - 1) // batch_size + 1)
+                
+                # Mostra le statistiche
+                col_stats1, col_stats2, col_stats3 = st.columns(3)
+                with col_stats1:
+                    st.metric("Voci in categoria", f"{len(df_categoria):,}")
+                with col_stats2:
+                    st.metric("Voci filtrate", f"{display_total_found:,}")
+                with col_stats3:
+                    st.metric("Pagina", f"{current_page}/{total_pages}")
+                
+                st.markdown("---")
                 # Titolo dinamico basato sulla categoria selezionata
                 if categoria_sel in ["Tutte le categorie", "Tutte le categorie selezionate"]:
                     if categoria_sel == "Tutte le categorie selezionate":
@@ -915,7 +919,7 @@ if df is not None and not df.empty:
                 else:
                     st.markdown(f"### 🌳 Risultati per: **{categoria_sel}**")
                     
-                for categoria_nome, rows in category_groups.items():
+                for categoria_nome, rows in filtered_display_groups.items():
                     with st.expander(f"{categoria_nome} ({len(rows)})", expanded=True):
                         df_cat = pd.DataFrame(rows)
                         df_cat.insert(0, "Aggiungi", False)
