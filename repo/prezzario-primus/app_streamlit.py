@@ -806,6 +806,7 @@ if df is not None and not df.empty:
 
             # Filtro categoria
             help_text = "Seleziona una categoria per filtrare i risultati."
+            categoria_sel = "Tutte le categorie"  # Assicurati che sia sempre inizializzato
             if categoria_col:
                 # Usa solo le categorie selezionate nel filtro
                 if 'selected_categories_filter' in st.session_state and st.session_state['selected_categories_filter']:
