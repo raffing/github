@@ -1036,7 +1036,34 @@ if df is not None and not df.empty:
                 st.metric("📈 Prezzo Medio", f"€ {avg_price:.2f}")
             
             # Mostra voci filtrate 
-            st.markdown(f"#### � Le Mie Voci ({selected_count})")
+            st.markdown(f"#### 📑 Le Mie Voci ({selected_count})")
+            
+            # Controlli per la gestione delle categorie custom
+            if st.session_state.get('custom_categories', []):
+                st.markdown("##### 🏷️ Gestione Categorie Custom")
+                
+                col_cat_select, col_cat_action = st.columns([2, 1])
+                
+                with col_cat_select:
+                    selected_category = st.selectbox(
+                        "Seleziona categoria per assegnazione:",
+                        options=["Nessuna categoria"] + st.session_state['custom_categories'],
+                        key="category_assignment_select",
+                        help="Seleziona la categoria da assegnare alle voci contrassegnate"
+                    )
+                
+                with col_cat_action:
+                    if st.button(
+                        "🏷️ Assegna Categoria",
+                        key="assign_category_btn",
+                        help="Assegna la categoria selezionata a tutte le voci contrassegnate nella tabella sottostante",
+                        use_container_width=True,
+                        disabled=selected_category == "Nessuna categoria"
+                    ):
+                        # Questa azione verrà gestita dopo la visualizzazione della tabella
+                        st.session_state['pending_category_assignment'] = selected_category
+                
+                st.markdown("---")
             
             # Raggruppa per categoria personalizzata
             groups = {}
@@ -1054,33 +1081,76 @@ if df is not None and not df.empty:
                     # Crea DataFrame per questo gruppo
                     df_group = pd.DataFrame(rows)
                     
-                    # Aggiungi colonna per rimozione
+                    # Aggiungi colonne per rimozione e selezione categoria
                     df_group.insert(0, "Rimuovi", False)
                     
+                    # Aggiungi colonna per selezione categoria solo se ci sono categorie custom disponibili
+                    if st.session_state.get('custom_categories', []):
+                        df_group.insert(1, "Seleziona", False)
+                    
                     # Rimuovi colonne interne
-                    columns_to_show = [col for col in df_group.columns if not col.startswith('_')]
+                    columns_to_show = [col for col in df_group.columns if not col.startswith('_') or col in ["Seleziona"]]
                     df_group_clean = df_group[columns_to_show].copy()
+                    
+                    # Configurazione colonne
+                    column_config = {
+                        "Rimuovi": st.column_config.CheckboxColumn(
+                            "🗑️ Rimuovi",
+                            help="Seleziona per rimuovere dal tuo elenco",
+                            default=False
+                        ),
+                        "TARIFFA": st.column_config.TextColumn("🏷️ Tariffa", width="medium"),
+                        "DESCRIZIONE dell'ARTICOLO": st.column_config.TextColumn("📝 Descrizione", width="large"),
+                        "Unità di misura": st.column_config.TextColumn("📏 Unità", width="small"),
+                        "Prezzo": st.column_config.NumberColumn("💰 Prezzo", format="%.2f €", width="small"),
+                    }
+                    
+                    # Aggiungi configurazione per colonna selezione categoria se presente
+                    if "Seleziona" in df_group_clean.columns:
+                        column_config["Seleziona"] = st.column_config.CheckboxColumn(
+                            "🏷️ Seleziona",
+                            help="Seleziona per assegnare categoria custom",
+                            default=False
+                        )
+                    
+                    # Lista campi disabilitati
+                    disabled_fields = ["TARIFFA", "DESCRIZIONE dell'ARTICOLO", "Unità di misura", "Prezzo", "CATEGORIA_ESTESA"]
                     
                     # Editor per questo gruppo
                     edited_group = st.data_editor(
                         df_group_clean,
-                        column_config={
-                            "Rimuovi": st.column_config.CheckboxColumn(
-                                "🗑️ Rimuovi",
-                                help="Seleziona per rimuovere dal tuo elenco",
-                                default=False
-                            ),
-                            "TARIFFA": st.column_config.TextColumn("🏷️ Tariffa", width="medium"),
-                            "DESCRIZIONE dell'ARTICOLO": st.column_config.TextColumn("📝 Descrizione", width="large"),
-                            "Unità di misura": st.column_config.TextColumn("📏 Unità", width="small"),
-                            "Prezzo": st.column_config.NumberColumn("💰 Prezzo", format="%.2f €", width="small"),
-                        },
-                        disabled=["TARIFFA", "DESCRIZIONE dell'ARTICOLO", "Unità di misura", "Prezzo", "CATEGORIA_ESTESA"],
+                        column_config=column_config,
+                        disabled=disabled_fields,
                         hide_index=True,
                         use_container_width=True,
                         height=min(400, 50 * len(df_group_clean) + 50),
                         key=f"my_list_editor_{categoria}"
                     )
+                    
+                    # Gestisci assegnazione categoria se c'è una categoria pendente
+                    if st.session_state.get('pending_category_assignment') and "Seleziona" in edited_group.columns:
+                        selected_for_category = edited_group[edited_group["Seleziona"] == True].index
+                        if len(selected_for_category) > 0:
+                            # Aggiorna le voci selezionate con la nuova categoria
+                            assigned_category = st.session_state['pending_category_assignment']
+                            updated_count = 0
+                            
+                            for idx in selected_for_category:
+                                if idx < len(df_group):
+                                    tariffa = df_group.iloc[idx]['TARIFFA']
+                                    # Trova la voce corrispondente in selected_rows e aggiorna la categoria
+                                    for row in st.session_state['selected_rows']:
+                                        if row.get('TARIFFA') == tariffa:
+                                            row['_CUSTOM_CATEGORY'] = assigned_category
+                                            updated_count += 1
+                                            break
+                            
+                            if updated_count > 0:
+                                auto_save_work_state()
+                                st.success(f"✅ Assegnata categoria '{assigned_category}' a {updated_count} voci!")
+                                # Rimuovi la categoria pendente e ricarica
+                                del st.session_state['pending_category_assignment']
+                                st.rerun()
                     
                     # Gestisci rimozioni
                     to_remove_indices = edited_group[edited_group["Rimuovi"] == True].index
@@ -1112,6 +1182,10 @@ if df is not None and not df.empty:
                         
                         with col_info:
                             st.info(f"🎯 {len(to_remove_indices)} voci selezionate")
+            
+            # Rimuovi categoria pendente se non è stata utilizzata
+            if st.session_state.get('pending_category_assignment'):
+                del st.session_state['pending_category_assignment']
             
             # Opzioni di esportazione
             st.markdown("#### 📤 Esportazione")
