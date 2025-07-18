@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import glob
+import io
 from datetime import datetime
 from src.esamina_excel import esamina_excel, raggruppa_per_lettera_tariffa, crea_struttura_gerarchica
 
@@ -304,8 +305,9 @@ def save_work_state():
     try:
         work_state = {
             'timestamp': datetime.now().isoformat(),
-            'custom_categories': st.session_state['custom_categories'],
-            'selected_rows': st.session_state['selected_rows'],
+            'custom_categories': st.session_state.get('custom_categories', []),
+            'selected_rows': st.session_state.get('selected_rows', []),
+            'categories': st.session_state.get('categories', []),
             'version': '1.1'
         }
         
@@ -318,32 +320,39 @@ def save_work_state():
         return None, None
 
 def load_work_state(uploaded_work_file):
-    """Carica lo stato del lavoro da un file JSON"""
-    # Verifica se il contesto di Streamlit è disponibile
+    """Carica lo stato del lavoro da un file CSV esportato dal Mio Elenco"""
+    import pandas as pd
     if not has_streamlit_context():
         return False, "Contesto Streamlit non disponibile"
-    
-    import json
-    
     try:
         content = uploaded_work_file.read()
-        # Se è già stringa, non serve decodificare
         if isinstance(content, bytes):
             content = content.decode('utf-8')
-        # Verifica che sia una stringa JSON valida
         if not isinstance(content, str):
             return False, "Il file caricato non è una stringa valida."
-        try:
-            work_data = json.loads(content)
-        except Exception as e:
-            return False, f"Errore di parsing JSON: {str(e)}"
-        # Valida la struttura
-        if isinstance(work_data, dict) and 'custom_categories' in work_data and 'selected_rows' in work_data:
-            st.session_state['custom_categories'] = work_data['custom_categories']
-            st.session_state['selected_rows'] = work_data['selected_rows']
-            return True, f"Caricato lavoro del {work_data.get('timestamp', 'data sconosciuta')}"
-        else:
-            return False, "File di lavoro non valido o struttura errata."
+        df = pd.read_csv(io.StringIO(content))
+        # Normalizza i nomi delle colonne
+        columns = [c.strip() for c in df.columns]
+        df.columns = columns
+        # Assicura che tutte le colonne chiave siano presenti
+        if 'Categoria Custom' not in df.columns:
+            df['Categoria Custom'] = None
+        # Ricostruisci selected_rows come lista di dict
+        selected_rows = []
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()
+            # Rimappa la colonna custom
+            if 'Categoria Custom' in row_dict:
+                row_dict['_CUSTOM_CATEGORY'] = row_dict.pop('Categoria Custom')
+            # Imposta a None i campi mancanti
+            for key in ['TARIFFA', "DESCRIZIONE dell'ARTICOLO", 'Unità di misura', 'Prezzo']:
+                if key not in row_dict:
+                    row_dict[key] = None
+            selected_rows.append(row_dict)
+        st.session_state['selected_rows'] = selected_rows
+        # Ricostruisci le custom categories (foglie della gerarchia)
+        st.session_state['custom_categories'] = list(set([r['_CUSTOM_CATEGORY'] for r in selected_rows if r.get('_CUSTOM_CATEGORY')]))
+        return True, f"Caricato {len(selected_rows)} voci dal backup CSV."
     except Exception as e:
         return False, f"Errore nel caricamento: {str(e)}"
 
@@ -521,9 +530,9 @@ if df is not None and not df.empty:
         with col_load:
             uploaded_work = st.file_uploader(
                 "📤 Carica Backup",
-                type=["json"],
+                type=["csv"],
                 key="work_file_uploader_settings",
-                help="Carica un file JSON precedentemente scaricato"
+                help="Carica un file CSV precedentemente esportato"
             )
             if uploaded_work:
                 # Usa un flag per evitare loop infinito di st.rerun
@@ -774,13 +783,25 @@ if df is not None and not df.empty:
             def batch_search_ricerca(df, search_tariffa, search_desc, search_unita, search_prezzo, batch_size=100, batch_start=0):
                 mask = np.ones(len(df), dtype=bool)
                 if search_tariffa:
-                    mask &= df['TARIFFA'].astype(str).str.contains(search_tariffa, case=False, na=False).values
+                    # Divide la stringa di ricerca in parole individuali
+                    search_words = search_tariffa.lower().split()
+                    for word in search_words:
+                        mask &= df['TARIFFA'].astype(str).str.lower().str.contains(word, na=False).values
                 if search_desc:
-                    mask &= df["DESCRIZIONE dell'ARTICOLO"].astype(str).str.contains(search_desc, case=False, na=False).values
+                    # Divide la stringa di ricerca in parole individuali
+                    search_words = search_desc.lower().split()
+                    for word in search_words:
+                        mask &= df["DESCRIZIONE dell'ARTICOLO"].astype(str).str.lower().str.contains(word, na=False).values
                 if search_unita:
-                    mask &= df['Unità di misura'].astype(str).str.contains(search_unita, case=False, na=False).values
+                    # Divide la stringa di ricerca in parole individuali
+                    search_words = search_unita.lower().split()
+                    for word in search_words:
+                        mask &= df['Unità di misura'].astype(str).str.lower().str.contains(word, na=False).values
                 if search_prezzo:
-                    mask &= df['Prezzo'].astype(str).str.contains(search_prezzo, case=False, na=False).values
+                    # Divide la stringa di ricerca in parole individuali
+                    search_words = search_prezzo.lower().split()
+                    for word in search_words:
+                        mask &= df['Prezzo'].astype(str).str.lower().str.contains(word, na=False).values
                 df_filtered = df[mask]
                 total = len(df_filtered)
                 start = batch_start
@@ -940,24 +961,23 @@ if df is not None and not df.empty:
                                 skipped_count = 0
                                 existing_items = set(row['TARIFFA'] for row in st.session_state['selected_rows'] if 'TARIFFA' in row)
                                 for display_idx in selected_indices:
-                                        if display_idx < len(df_cat):
-                                            row_data = df_cat.iloc[display_idx].to_dict()
-                                            row_data.pop('Aggiungi', None)
-                                            tariffa_id = row_data.get('TARIFFA', '')
-                                            if tariffa_id not in existing_items:
-                                                # Imposta la categoria custom a None (sarà assegnata solo dall'utente)
-                                                row_data['_CUSTOM_CATEGORY'] = None
-                                                st.session_state['selected_rows'].append(row_data)
-                                                existing_items.add(tariffa_id)
-                                                added_count += 1
-                                            else:
-                                                skipped_count += 1
+                                    if display_idx < len(df_cat):
+                                        row_data = df_cat.iloc[display_idx].to_dict()
+                                        row_data.pop('Aggiungi', None)
+                                        tariffa_id = row_data.get('TARIFFA', '')
+                                        if tariffa_id not in existing_items:
+                                            # Imposta la categoria custom a None (sarà assegnata solo dall'utente)
+                                            row_data['_CUSTOM_CATEGORY'] = None
+                                            st.session_state['selected_rows'].append(row_data)
+                                            existing_items.add(tariffa_id)
+                                            added_count += 1
+                                        else:
+                                            skipped_count += 1
                                 if added_count > 0:
                                     auto_save_work_state()
                                     st.success(f"✅ Aggiunte {added_count} nuove voci al tuo elenco!")
                                 if skipped_count > 0:
                                     st.info(f"⏭️ Saltate {skipped_count} voci già presenti nel tuo elenco.")
-                                st.rerun()
             else:
                 st.warning("⚠️ Nessun risultato trovato per i criteri di ricerca specificati.")
 
@@ -1198,11 +1218,13 @@ if df is not None and not df.empty:
             
             with col_exp2:
                 if st.session_state['selected_rows']:
-                    # Prepara CSV con colonna Categoria Custom
+                    # Prepara CSV con tutte le colonne presenti nei dati
                     df_export = pd.DataFrame(st.session_state['selected_rows'])
-                    # Rinomina la colonna per l'export se presente
+                    # Assicura che la colonna custom sia sempre presente e visibile
                     if '_CUSTOM_CATEGORY' in df_export.columns:
                         df_export = df_export.rename(columns={'_CUSTOM_CATEGORY': 'Categoria Custom'})
+                    elif 'Categoria Custom' not in df_export.columns:
+                        df_export['Categoria Custom'] = None
                     csv_data = df_export.to_csv(index=False)
                     st.download_button(
                         label="📊 Scarica CSV",

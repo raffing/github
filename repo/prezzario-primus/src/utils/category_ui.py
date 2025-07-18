@@ -21,8 +21,8 @@ from .category_parser import (
     validate_category_syntax,
     generate_hierarchical_numbering,
     get_category_display_name,
-    export_categories_to_dict,
-    import_categories_from_dict
+    export_categories_to_csv,
+    import_categories_from_csv
 )
 
 
@@ -143,16 +143,16 @@ def display_current_categories() -> None:
     
     if 'categories' in st.session_state and st.session_state.categories:
         st.subheader("📚 Categorie Attuali")
-        
         categories = st.session_state.categories
-        
+        # Se tutte le categorie sono di livello 0 o manca la gerarchia
+        livelli_presenti = set(cat.get('level', 0) for cat in categories)
+        if livelli_presenti == {0}:
+            st.warning("⚠️ Attenzione: la gerarchia delle categorie non è presente. Per una visualizzazione completa importa il file delle categorie dal tab Import/Export.")
         # Statistiche
         col1, col2, col3, col4 = st.columns(4)
-        
         level_counts = {0: 0, 1: 0, 2: 0}
         for cat in categories:
             level_counts[cat['level']] += 1
-        
         with col1:
             st.metric("Totale", len(categories))
         with col2:
@@ -161,22 +161,18 @@ def display_current_categories() -> None:
             st.metric("Livello 1", level_counts[1])
         with col4:
             st.metric("Livello 2", level_counts[2])
-        
         # Lista delle categorie con indentazione
         with st.expander("📋 Lista Completa", expanded=True):
             for cat in categories:
                 col1, col2 = st.columns([4, 1])
-                # Indentazione visiva in base al livello
-                indent = "".join([" " for _ in range(cat['level'])])  # usa carattere unicode spazio sottile
+                indent = "".join([" " for _ in range(cat['level'])])
                 bullet = "•" if cat['level'] == 0 else ("└─" if cat['level'] == 1 else "  └─")
                 with col1:
                     st.markdown(f"{indent}{bullet} {cat['display_name']}")
                 with col2:
                     st.code(f"L{cat['level']}")
-        
         # Azioni
         col1, col2, col3, col4 = st.columns(4)
-
         with col1:
             if st.button("🗑️ Cancella Tutte", key="clear_all_cats"):
                 del st.session_state.categories
@@ -193,14 +189,13 @@ def display_current_categories() -> None:
                     st.rerun()
 
         with col3:
-            # Export JSON
-            export_data = export_categories_to_dict(categories)
-            json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
+            # Export CSV
+            csv_str = export_categories_to_csv(categories)
             st.download_button(
-                "📥 Export JSON",
-                data=json_str,
-                file_name=f"categorie_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json",
+                "📥 Export CSV",
+                data=csv_str,
+                file_name=f"categorie_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
                 key="export_cats_btn"
             )
 
@@ -225,44 +220,34 @@ def display_current_categories() -> None:
 
 
 def render_category_import() -> None:
-    """Renderizza l'interfaccia per importare categorie da file JSON"""
-    
+    """Renderizza l'interfaccia per importare categorie da file CSV"""
     st.subheader("📥 Importa Categorie")
-    
     uploaded_file = st.file_uploader(
-        "Seleziona file JSON delle categorie",
-        type=['json'],
-        help="Carica un file JSON esportato precedentemente",
+        "Seleziona file CSV delle categorie",
+        type=['csv'],
+        help="Carica un file CSV esportato precedentemente",
         key="category_import_file"
     )
-    
     if uploaded_file is not None:
         try:
             # Leggi il contenuto del file
             content = uploaded_file.read().decode('utf-8')
-            data = json.loads(content)
-            
             # Importa le categorie
-            imported_categories = import_categories_from_dict(data)
-            
+            imported_categories = import_categories_from_csv(content)
             if imported_categories:
                 st.success(f"✅ **{len(imported_categories)} categorie importate con successo!**")
-                
                 # Mostra anteprima
                 with st.expander("📋 Anteprima Categorie Importate", expanded=True):
                     for cat in imported_categories:
                         st.markdown(f"{cat['display_name']}")
-                
                 # Pulsanti di azione
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     if st.button("💾 Sostituisci Categorie Attuali", key="replace_cats"):
                         st.session_state.categories = imported_categories
                         st.session_state.categories_confirmed = True
                         st.success("Categorie sostituite!")
                         st.rerun()
-                
                 with col2:
                     if st.button("➕ Aggiungi alle Categorie Attuali", key="append_cats"):
                         if 'categories' in st.session_state and st.session_state.categories:
@@ -274,9 +259,6 @@ def render_category_import() -> None:
                         st.rerun()
             else:
                 st.error("❌ Nessuna categoria valida trovata nel file")
-                
-        except json.JSONDecodeError as e:
-            st.error(f"❌ Errore nel parsing del JSON: {str(e)}")
         except Exception as e:
             st.error(f"❌ Errore durante l'importazione: {str(e)}")
 

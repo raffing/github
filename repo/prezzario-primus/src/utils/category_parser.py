@@ -1,3 +1,41 @@
+import csv
+import io
+from typing import List, Dict
+def export_categories_to_csv(categories: List[Dict]) -> str:
+    """
+    Esporta le categorie in una stringa CSV.
+    Colonne: name,level,id,hierarchical_number,display_name
+    """
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["name", "level", "id", "hierarchical_number", "display_name"])
+    for cat in categories:
+        writer.writerow([
+            cat['name'],
+            cat['level'],
+            cat['id'],
+            cat.get('hierarchical_number', ''),
+            cat.get('display_name', cat['name'])
+        ])
+    return output.getvalue()
+
+def import_categories_from_csv(csv_content: str) -> List[Dict]:
+    """
+    Importa le categorie da una stringa CSV.
+    """
+    input_io = io.StringIO(csv_content)
+    reader = csv.DictReader(input_io)
+    categories = []
+    for row in reader:
+        category = {
+            'name': row['name'],
+            'level': int(row['level']),
+            'id': row.get('id', generate_category_id()),
+            'hierarchical_number': row.get('hierarchical_number', ''),
+            'display_name': row.get('display_name', row['name'])
+        }
+        categories.append(category)
+    return categories
 """
 Sistema di parsing per categorie gerarchiche con sintassi a parentesi annidate.
 
@@ -271,58 +309,3 @@ def generate_hierarchical_numbering(hierarchical_categories: List[Dict]) -> List
         numbered_categories.append(numbered_category)
     
     return numbered_categories
-
-
-def export_categories_to_dict(categories: List[Dict]) -> Dict:
-    """
-    Esporta le categorie in un formato dizionario per salvare in JSON
-    """
-    export_data = {
-        'version': '1.0',
-        'created_at': str(datetime.now()),
-        'categories': []
-    }
-    
-    for cat in categories:
-        export_data['categories'].append({
-            'name': cat['name'],
-            'level': cat['level'],
-            'id': cat['id'],
-            'hierarchical_number': cat.get('hierarchical_number', ''),
-            'display_name': cat.get('display_name', cat['name'])
-        })
-    
-    return export_data
-
-
-def import_categories_from_dict(data: Dict) -> List[Dict]:
-    """
-    Importa le categorie da un dizionario JSON
-    """
-    if 'categories' not in data:
-        return []
-    
-    categories = []
-    for cat_data in data['categories']:
-        category = {
-            'name': cat_data['name'],
-            'level': cat_data['level'],
-            'id': cat_data.get('id', generate_category_id())
-        }
-        
-        if 'hierarchical_number' in cat_data:
-            category['hierarchical_number'] = cat_data['hierarchical_number']
-        
-        if 'display_name' in cat_data:
-            category['display_name'] = cat_data['display_name']
-        else:
-            category['display_name'] = get_category_display_name(category, 
-                                                               category.get('hierarchical_number', ''))
-        
-        categories.append(category)
-    
-    return categories
-
-
-# Aggiungi l'import necessario per datetime
-from datetime import datetime
